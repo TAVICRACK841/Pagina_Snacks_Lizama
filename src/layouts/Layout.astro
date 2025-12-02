@@ -1,0 +1,21 @@
+---
+import Navbar from '../components/Navbar';
+---
+
+<!doctype html>
+<html lang="es">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="description" content="Snacks Lizama App" />
+		<meta name="viewport" content="width=device-width" />
+		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+		<title>Snacks Lizama</title>
+	</head>
+	<body class="bg-gray-100 min-h-screen">
+		<Navbar client:load />
+		
+		<main class="container mx-auto p-4">
+			<slot />
+		</main>
+	</body>
+</html>
