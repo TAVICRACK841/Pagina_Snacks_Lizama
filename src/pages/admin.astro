@@ -1,0 +1,13 @@
+---
+import Layout from '../layouts/Layout.astro';
+import AdminDashboard from '../components/AdminDashboard';
+---
+
+<Layout>
+  <div class="mb-6">
+    <h1 class="text-3xl font-extrabold text-gray-800">Panel de Administración</h1>
+    <p class="text-gray-500">Gestiona tu menú, equipo y ganancias.</p>
+  </div>
+
+  <AdminDashboard client:only="react" />
+</Layout>

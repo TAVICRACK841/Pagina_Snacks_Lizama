@@ -1,0 +1,13 @@
+---
+import Layout from '../layouts/Layout.astro';
+import KitchenBoard from '../components/KitchenBoard';
+---
+
+<Layout>
+  <div class="mb-6">
+    <h1 class="text-3xl font-extrabold text-gray-800">Comandas y Cocina 👨‍🍳</h1>
+    <p class="text-gray-500">Pedidos en tiempo real</p>
+  </div>
+
+  <KitchenBoard client:only="react" />
+</Layout>
