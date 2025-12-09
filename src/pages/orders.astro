@@ -1,0 +1,8 @@
+---
+import Layout from '../layouts/Layout.astro';
+import MyOrders from '../components/MyOrders.jsx';
+---
+
+<Layout title="Mis Pedidos | Snacks Lizama">
+  <MyOrders client:only="react" />
+</Layout>
