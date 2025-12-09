@@ -108,7 +108,6 @@ export default function Cart() {
           )}
         </div>
 
-        {/* Sección de Pago y Tipo de Entrega */}
         {$cartItems.length > 0 && (
           <div className="space-y-4">
             <div>

@@ -6,6 +6,9 @@ import { addToCart } from '../stores/cartStore';
 export default function MenuGrid() {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
+  
+  // 1. NUEVO ESTADO PARA EL BUSCADOR
+  const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
     const fetchProducts = async () => {
@@ -26,6 +29,12 @@ export default function MenuGrid() {
     fetchProducts();
   }, []);
 
+  // 2. LÓGICA DE FILTRADO
+  // Filtramos la lista original 'products' basándonos en lo que el usuario escribe
+  const filteredProducts = products.filter(product => 
+    product.name.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
   if (loading) {
     return (
       <div className="flex justify-center items-center h-40">
@@ -35,47 +44,75 @@ export default function MenuGrid() {
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 p-4">
-      {products.map((product) => (
-        <div key={product.id} className="bg-white rounded-xl shadow-lg overflow-hidden hover:shadow-xl transition-shadow duration-300 flex flex-col">
-          <div className="h-48 overflow-hidden relative">
-            <img 
-              src={product.image} 
-              alt={product.name} 
-              className="w-full h-full object-cover"
-            />
-            {!product.inStock && (
-              <div className="absolute top-0 right-0 bg-red-600 text-white text-xs font-bold px-2 py-1 m-2 rounded">
-                AGOTADO
-              </div>
-            )}
-          </div>
-          
-          <div className="p-5 flex-1 flex flex-col justify-between">
-            <div>
-              <div className="flex justify-between items-start mb-2">
-                <h3 className="text-xl font-bold text-gray-800">{product.name}</h3>
-                <span className="text-lg font-bold text-orange-600">${product.price}</span>
-              </div>
-              <p className="text-gray-600 text-sm mb-4 line-clamp-2">
-                {product.description}
-              </p>
-            </div>
+    <div className="p-4 max-w-7xl mx-auto">
+      
+      {/* 3. BARRA DE BÚSQUEDA (Visual) */}
+      <div className="mb-8 flex flex-col md:flex-row justify-between items-center gap-4">
+        <h2 className="text-3xl font-bold text-gray-800">Nuestro <span className="text-orange-600">Menú</span></h2>
+        
+        <div className="relative w-full md:w-96">
+          <input 
+            type="text" 
+            placeholder="🔍 Buscar alitas, hamburguesas..." 
+            className="w-full pl-4 pr-4 py-3 border border-gray-300 rounded-full shadow-sm focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-200 transition-all"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
+      </div>
 
-            <button 
-              disabled={!product.inStock}
-              onClick={() => addToCart(product)}
-              className={`w-full py-2 rounded-lg font-bold transition-colors ${
-                product.inStock 
-                  ? 'bg-orange-500 text-white hover:bg-orange-600' 
-                  : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-              }`}
-            >
-              {product.inStock ? 'Agregar al Pedido' : 'No Disponible'}
+      {/* 4. GRID DE PRODUCTOS (Usamos filteredProducts en vez de products) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {filteredProducts.length > 0 ? (
+          filteredProducts.map((product) => (
+            <div key={product.id} className="bg-white rounded-xl shadow-lg overflow-hidden hover:shadow-xl transition-shadow duration-300 flex flex-col">
+              <div className="h-48 overflow-hidden relative">
+                <img 
+                  src={product.image} 
+                  alt={product.name} 
+                  className="w-full h-full object-cover transform hover:scale-105 transition-transform duration-500"
+                />
+                {!product.inStock && (
+                  <div className="absolute top-0 right-0 bg-red-600 text-white text-xs font-bold px-2 py-1 m-2 rounded">
+                    AGOTADO
+                  </div>
+                )}
+              </div>
+              
+              <div className="p-5 flex-1 flex flex-col justify-between">
+                <div>
+                  <div className="flex justify-between items-start mb-2">
+                    <h3 className="text-xl font-bold text-gray-800">{product.name}</h3>
+                    <span className="text-lg font-bold text-orange-600">${product.price}</span>
+                  </div>
+                  <p className="text-gray-600 text-sm mb-4 line-clamp-2">
+                    {product.description}
+                  </p>
+                </div>
+
+                <button 
+                  disabled={!product.inStock}
+                  onClick={() => addToCart(product)}
+                  className={`w-full py-2 rounded-lg font-bold transition-colors ${
+                    product.inStock 
+                      ? 'bg-orange-500 text-white hover:bg-orange-600 shadow-md active:transform active:scale-95' 
+                      : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  }`}
+                >
+                  {product.inStock ? 'Agregar al Pedido' : 'No Disponible'}
+                </button>
+              </div>
+            </div>
+          ))
+        ) : (
+          <div className="col-span-full text-center py-10 text-gray-500">
+            <p className="text-xl">😢 No encontramos productos con ese nombre.</p>
+            <button onClick={() => setSearchTerm('')} className="mt-2 text-orange-600 font-bold hover:underline">
+              Ver todo el menú
             </button>
           </div>
-        </div>
-      ))}
+        )}
+      </div>
     </div>
   );
 }

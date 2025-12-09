@@ -41,7 +41,6 @@ export default function Navbar() {
         {user && (
           <div className="flex items-center gap-4">
             
-            {/* BOTÓN SOLO PARA PERSONAL (No Clientes) */}
             {role && role !== 'cliente' && (
               <a href="/kitchen" className="hidden md:block bg-orange-700 px-3 py-1 rounded hover:bg-orange-800 font-bold text-sm">
                 👨‍🍳 Cocina
@@ -71,7 +70,6 @@ export default function Navbar() {
                   <a href="/menu" className="block px-4 py-2 hover:bg-gray-100">📋 Ver Menú</a>
                   <a href="/profile" className="block px-4 py-2 hover:bg-gray-100">👤 Mi Perfil</a>
 
-                  {/* Enlace a Cocina también en menú móvil */}
                   {role && role !== 'cliente' && (
                     <a href="/kitchen" className="block px-4 py-2 hover:bg-gray-100 text-blue-600 font-semibold">
                       👨‍🍳 Ver Pedidos
