@@ -2,7 +2,7 @@
 import Navbar from '../components/Navbar';
 import Cart from '../components/Cart';
 import StoreGuard from '../components/StoreGuard';
-import ToastNotification from '../components/ToastNotification'; // <--- IMPORTACIÓN NUEVA
+import ToastNotification from '../components/ToastNotification';
 ---
 
 <!doctype html>
@@ -13,11 +13,18 @@ import ToastNotification from '../components/ToastNotification'; // <--- IMPORTA
         <meta name="viewport" content="width=device-width" />
         <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
         <title>Snacks Lizama</title>
-    </head>
-    <body class="bg-gray-100 min-h-screen">
         
-        {/* Notificaciones globales */}
-        <ToastNotification client:load /> 
+        <script is:inline>
+            if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                document.documentElement.classList.add('dark');
+            } else {
+                document.documentElement.classList.remove('dark');
+            }
+        </script>
+    </head>
+    <body class="bg-gray-100 dark:bg-gray-900 min-h-screen transition-colors duration-300">
+        
+        <ToastNotification client:load />
 
         <StoreGuard client:load>
             <Navbar client:load />
