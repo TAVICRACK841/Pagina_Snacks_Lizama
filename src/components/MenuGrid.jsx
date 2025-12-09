@@ -2,12 +2,11 @@ import { useState, useEffect } from 'react';
 import { db } from '../firebase/config';
 import { collection, getDocs, query, orderBy } from 'firebase/firestore';
 import { addToCart } from '../stores/cartStore';
+import { showToast } from '../stores/toastStore'; // <--- IMPORTAMOS LA NOTIFICACIÓN BONITA
 
 export default function MenuGrid() {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
-  
-  // 1. NUEVO ESTADO PARA EL BUSCADOR
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
@@ -29,8 +28,7 @@ export default function MenuGrid() {
     fetchProducts();
   }, []);
 
-  // 2. LÓGICA DE FILTRADO
-  // Filtramos la lista original 'products' basándonos en lo que el usuario escribe
+  // Lógica del buscador
   const filteredProducts = products.filter(product => 
     product.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -46,7 +44,7 @@ export default function MenuGrid() {
   return (
     <div className="p-4 max-w-7xl mx-auto">
       
-      {/* 3. BARRA DE BÚSQUEDA (Visual) */}
+      {/* BARRA DE BÚSQUEDA */}
       <div className="mb-8 flex flex-col md:flex-row justify-between items-center gap-4">
         <h2 className="text-3xl font-bold text-gray-800">Nuestro <span className="text-orange-600">Menú</span></h2>
         
@@ -61,7 +59,7 @@ export default function MenuGrid() {
         </div>
       </div>
 
-      {/* 4. GRID DE PRODUCTOS (Usamos filteredProducts en vez de products) */}
+      {/* GRID DE PRODUCTOS */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {filteredProducts.length > 0 ? (
           filteredProducts.map((product) => (
@@ -92,7 +90,11 @@ export default function MenuGrid() {
 
                 <button 
                   disabled={!product.inStock}
-                  onClick={() => addToCart(product)}
+                  // AQUÍ ESTÁ EL CAMBIO IMPORTANTE:
+                  onClick={() => {
+                    addToCart(product);
+                    showToast(`Agregaste ${product.name}`, 'success');
+                  }}
                   className={`w-full py-2 rounded-lg font-bold transition-colors ${
                     product.inStock 
                       ? 'bg-orange-500 text-white hover:bg-orange-600 shadow-md active:transform active:scale-95' 
