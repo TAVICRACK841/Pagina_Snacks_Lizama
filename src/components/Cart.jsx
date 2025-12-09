@@ -3,14 +3,13 @@ import { isCartOpen, cartItems, removeFromCart, updateQuantity, clearCart } from
 import { useState, useEffect } from 'react';
 import { auth, db } from '../firebase/config';
 import { addDoc, collection, doc, onSnapshot, getDoc } from 'firebase/firestore';
-import { showToast } from '../stores/toastStore'; // <--- USAMOS NOTIFICACIONES BONITAS
+import { showToast } from '../stores/toastStore';
 
 export default function Cart() {
   const $isCartOpen = useStore(isCartOpen);
   const $cartItems = useStore(cartItems);
   const [user, setUser] = useState(null);
   const [userData, setUserData] = useState({});
-
   const [orderType, setOrderType] = useState('mesa');
   const [tableNumber, setTableNumber] = useState('');
   const [selectedAddress, setSelectedAddress] = useState('');
@@ -27,54 +26,21 @@ export default function Cart() {
         } catch (e) { setAvailableTables(Array.from({length: 15}, (_, i) => i + 1)); }
     };
     fetchConfig();
-
-    const unsubscribe = auth.onAuthStateChanged((u) => {
-      setUser(u);
-      if (u) {
-        onSnapshot(doc(db, "users", u.uid), (docSnap) => {
-            if(docSnap.exists()) setUserData(docSnap.data());
-        });
-      }
-    });
+    const unsubscribe = auth.onAuthStateChanged((u) => { setUser(u); if (u) { onSnapshot(doc(db, "users", u.uid), (docSnap) => { if(docSnap.exists()) setUserData(docSnap.data()); }); } });
     return () => unsubscribe();
   }, []);
 
   const total = $cartItems.reduce((acc, item) => acc + item.price * item.quantity, 0);
 
   const handleCheckout = async () => {
-    // AQUÍ ESTABA LA ALERTA FEA -> AHORA ES TOAST
-    if (!user) return showToast("Inicia sesión para pedir", 'error');
+    if (!user) return showToast("Inicia sesión", 'error');
     if ($cartItems.length === 0) return showToast("Carrito vacío", 'error');
-    if (orderType === 'mesa' && !tableNumber) return showToast("Selecciona tu mesa", 'error');
-    if (orderType === 'domicilio' && !selectedAddress) return showToast("Selecciona una dirección", 'error');
-
     setLoading(true);
     try {
-      const orderData = {
-        userId: user.uid,
-        userEmail: user.email,
-        userName: userData.displayName || user.displayName || 'Cliente',
-        items: $cartItems,
-        total: total,
-        type: orderType, 
-        detail: orderType === 'mesa' ? `Mesa ${tableNumber}` : selectedAddress,
-        paymentMethod: paymentMethod,
-        status: 'pendiente',
-        date: new Date(),
-        createdAt: new Date().toISOString() 
-      };
-
+      const orderData = { userId: user.uid, userEmail: user.email, userName: userData.displayName || 'Cliente', items: $cartItems, total: total, type: orderType, detail: orderType === 'mesa' ? `Mesa ${tableNumber}` : selectedAddress, paymentMethod: paymentMethod, status: 'pendiente', date: new Date(), createdAt: new Date().toISOString() };
       await addDoc(collection(db, "orders"), orderData);
-      
-      // MENSAJE DE ÉXITO VERDE (No alerta blanca)
-      showToast(`¡Pedido Enviado! Total: $${total}`, 'success');
-      
-      clearCart();
-      isCartOpen.set(false);
-    } catch (error) {
-      console.error(error);
-      showToast("Error al enviar", 'error');
-    }
+      showToast(`¡Pedido Enviado!`, 'success'); clearCart(); isCartOpen.set(false);
+    } catch (error) { showToast("Error", 'error'); }
     setLoading(false);
   };
 
@@ -83,23 +49,25 @@ export default function Cart() {
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-black bg-opacity-50" onClick={() => isCartOpen.set(false)}></div>
-      <div className="relative w-full max-w-md bg-white h-full shadow-2xl flex flex-col overflow-y-auto p-6">
-        <div className="flex justify-between items-center mb-6 border-b pb-4">
-          <h2 className="text-2xl font-bold text-gray-800">Tu Pedido</h2>
-          <button onClick={() => isCartOpen.set(false)} className="text-gray-500 hover:text-red-500 font-bold text-xl">✕</button>
+      
+      {/* CAJÓN OSCURO */}
+      <div className="relative w-full max-w-md bg-white dark:bg-gray-900 h-full shadow-2xl flex flex-col overflow-y-auto p-6 transition-colors border-l dark:border-gray-800">
+        <div className="flex justify-between items-center mb-6 border-b dark:border-gray-800 pb-4">
+          <h2 className="text-2xl font-bold text-gray-800 dark:text-white">Tu Pedido</h2>
+          <button onClick={() => isCartOpen.set(false)} className="text-gray-500 dark:text-gray-400 hover:text-red-500 text-xl font-bold">✕</button>
         </div>
 
-        <div className="flex-1 overflow-y-auto mb-6">
+        <div className="flex-1 overflow-y-auto mb-6 pr-1">
           {$cartItems.map((item) => (
-            <div key={item.id} className="flex gap-4 mb-4 border-b pb-4">
-              <img src={item.image} className="w-16 h-16 rounded object-cover" />
+            <div key={item.id} className="flex gap-4 mb-4 border-b dark:border-gray-800 pb-4">
+              <img src={item.image} className="w-16 h-16 rounded object-cover bg-gray-100" />
               <div className="flex-1">
-                <h4 className="font-bold">{item.name}</h4>
+                <h4 className="font-bold dark:text-white">{item.name}</h4>
                 <p className="text-orange-600 font-bold">${item.price}</p>
                 <div className="flex items-center gap-2 mt-2">
-                  <button onClick={() => updateQuantity(item.id, item.quantity - 1)} className="w-6 h-6 bg-gray-200 rounded font-bold">-</button>
-                  <span>{item.quantity}</span>
-                  <button onClick={() => updateQuantity(item.id, item.quantity + 1)} className="w-6 h-6 bg-gray-200 rounded font-bold">+</button>
+                  <button onClick={() => updateQuantity(item.id, item.quantity - 1)} className="w-6 h-6 bg-gray-200 dark:bg-gray-700 dark:text-white rounded font-bold">-</button>
+                  <span className="dark:text-white">{item.quantity}</span>
+                  <button onClick={() => updateQuantity(item.id, item.quantity + 1)} className="w-6 h-6 bg-gray-200 dark:bg-gray-700 dark:text-white rounded font-bold">+</button>
                   <button onClick={() => removeFromCart(item.id)} className="ml-auto text-red-500 text-xs underline">Quitar</button>
                 </div>
               </div>
@@ -109,8 +77,8 @@ export default function Cart() {
 
         <div className="space-y-4">
             <div>
-              <label className="block font-bold mb-2">¿Cómo lo quieres?</label>
-              <select value={orderType} onChange={(e) => setOrderType(e.target.value)} className="w-full p-2 border rounded bg-gray-50">
+              <label className="block font-bold mb-2 dark:text-white">¿Cómo lo quieres?</label>
+              <select value={orderType} onChange={(e) => setOrderType(e.target.value)} className="w-full p-2 border rounded bg-gray-50 dark:bg-gray-800 dark:text-white dark:border-gray-700">
                 <option value="mesa">Comer en Mesa</option>
                 <option value="llevar">Para Llevar</option>
                 <option value="domicilio">A Domicilio</option>
@@ -119,8 +87,8 @@ export default function Cart() {
 
             {orderType === 'mesa' && (
               <div>
-                  <label className="block text-sm font-bold text-gray-600 mb-1">Número de Mesa</label>
-                  <select className="w-full p-2 border rounded" value={tableNumber} onChange={(e) => setTableNumber(e.target.value)}>
+                  <label className="block text-sm font-bold text-gray-600 dark:text-gray-400 mb-1">Mesa</label>
+                  <select className="w-full p-2 border rounded dark:bg-gray-800 dark:text-white dark:border-gray-700" value={tableNumber} onChange={(e) => setTableNumber(e.target.value)}>
                       <option value="">-- Selecciona --</option>
                       {availableTables.map(num => <option key={num} value={num}>Mesa {num}</option>)}
                   </select>
@@ -129,29 +97,26 @@ export default function Cart() {
 
             {orderType === 'domicilio' && (
               <div>
-                  <label className="block text-sm font-bold text-gray-600 mb-1">Dirección de Entrega</label>
-                  {userData.savedAddresses && userData.savedAddresses.length > 0 ? (
-                      <select className="w-full p-2 border rounded" value={selectedAddress} onChange={(e) => setSelectedAddress(e.target.value)}>
-                          <option value="">-- Elige una guardada --</option>
-                          {userData.savedAddresses.map(addr => <option key={addr.id} value={addr.text}>{addr.alias} - {addr.text.substring(0, 25)}...</option>)}
-                      </select>
-                  ) : <p className="text-red-500 text-xs">No tienes direcciones. Ve a tu Perfil.</p>}
-                  <a href="/profile" className="text-blue-600 text-xs hover:underline block mt-1 font-bold">+ Agregar nueva ubicación</a>
+                  <label className="block text-sm font-bold text-gray-600 dark:text-gray-400 mb-1">Dirección</label>
+                  <select className="w-full p-2 border rounded dark:bg-gray-800 dark:text-white dark:border-gray-700" value={selectedAddress} onChange={(e) => setSelectedAddress(e.target.value)}>
+                      <option value="">-- Selecciona --</option>
+                      {userData.savedAddresses?.map(addr => <option key={addr.id} value={addr.text}>{addr.alias} - {addr.text.substring(0, 20)}...</option>)}
+                  </select>
               </div>
             )}
 
             <div>
-              <label className="block font-bold mb-2">Método de Pago</label>
+              <label className="block font-bold mb-2 dark:text-white">Pago</label>
               <div className="flex gap-2">
                 {['efectivo', 'tarjeta', 'transferencia'].map((method) => (
-                  <button key={method} onClick={() => setPaymentMethod(method)} className={`flex-1 py-2 text-sm rounded border capitalize ${paymentMethod === method ? 'bg-orange-100 border-orange-500 text-orange-700 font-bold' : 'bg-white text-gray-600'}`}>{method}</button>
+                  <button key={method} onClick={() => setPaymentMethod(method)} className={`flex-1 py-2 text-sm rounded border capitalize ${paymentMethod === method ? 'bg-orange-100 border-orange-500 text-orange-700 dark:bg-orange-900 dark:text-orange-300 dark:border-orange-700 font-bold' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 dark:border-gray-700'}`}>{method}</button>
                 ))}
               </div>
             </div>
 
-            <div className="border-t pt-4 mt-4">
-              <div className="flex justify-between text-xl font-bold mb-4"><span>Total:</span><span>${total}</span></div>
-              <button onClick={handleCheckout} disabled={loading} className="w-full bg-green-600 text-white py-3 rounded-lg font-bold hover:bg-green-700 disabled:bg-gray-400">
+            <div className="border-t dark:border-gray-800 pt-4 mt-4">
+              <div className="flex justify-between text-xl font-bold mb-4 dark:text-white"><span>Total:</span><span>${total}</span></div>
+              <button onClick={handleCheckout} disabled={loading} className="w-full bg-green-600 text-white py-3 rounded-lg font-bold hover:bg-green-700 disabled:bg-gray-600">
                 {loading ? 'Enviando...' : 'Confirmar Pedido'}
               </button>
             </div>

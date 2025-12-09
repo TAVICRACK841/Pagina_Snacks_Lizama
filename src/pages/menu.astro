@@ -3,11 +3,6 @@ import Layout from '../layouts/Layout.astro';
 import MenuGrid from '../components/MenuGrid';
 ---
 
-<Layout>
-  <div class="mb-6 text-center md:text-left">
-    <h1 class="text-3xl font-extrabold text-gray-800">Menú</h1>
-    <p class="text-gray-500 mt-1">Elige tus favoritos y ordénalos ahora.</p>
-  </div>
-
-  <MenuGrid client:load />
+<Layout title="Menú | Snacks Lizama">
+  <MenuGrid client:only="react" />
 </Layout>

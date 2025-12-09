@@ -14,15 +14,12 @@ export default function AdminDashboard() {
   const CLOUD_NAME = import.meta.env.PUBLIC_CLOUDINARY_CLOUD_NAME || "dw5mio6d9"; 
   const UPLOAD_PRESET = import.meta.env.PUBLIC_CLOUDINARY_PRESET || "Snacks_Lizama"; 
 
-  const [newProduct, setNewProduct] = useState({
-    name: '', price: '', category: 'hamburguesas', description: '', inStock: true
-  });
+  const [newProduct, setNewProduct] = useState({ name: '', price: '', category: 'hamburguesas', description: '', inStock: true });
   const [imageFile, setImageFile] = useState(null);
   const [users, setUsers] = useState([]);
   const [orders, setOrders] = useState([]);
   const [products, setProducts] = useState([]); 
 
-  // 1. CARGAR CONFIGURACIÓN GENERAL
   useEffect(() => {
     const unsub = onSnapshot(doc(db, "store_config", "main"), (docSnap) => {
       if (docSnap.exists()) {
@@ -39,23 +36,15 @@ export default function AdminDashboard() {
       const newState = !isStoreOpen;
       await setDoc(doc(db, "store_config", "main"), { isOpen: newState }, { merge: true });
       showToast(newState ? "Local ABIERTO" : "Local CERRADO", newState ? 'success' : 'error');
-    } catch (error) {
-      showToast("Error al cambiar estado", 'error');
-    }
+    } catch (error) { showToast("Error", 'error'); }
   };
 
   const handleUpdateTables = async () => {
       setLoading(true);
-      try {
-        await setDoc(doc(db, "store_config", "main"), { tableCount: Number(tableCount) }, { merge: true });
-        showToast("Número de mesas actualizado", 'success');
-      } catch (error) {
-        showToast("Error al guardar mesas", 'error');
-      }
+      try { await setDoc(doc(db, "store_config", "main"), { tableCount: Number(tableCount) }, { merge: true }); showToast("Mesas actualizadas", 'success'); } catch (error) { showToast("Error", 'error'); }
       setLoading(false);
   };
 
-  // 2. CARGAR DATOS
   useEffect(() => {
     if (activeTab === 'menu') fetchProducts();
     if (activeTab === 'roles') fetchUsers();
@@ -68,12 +57,7 @@ export default function AdminDashboard() {
     data.sort((a, b) => a.name.localeCompare(b.name));
     setProducts(data);
   };
-
-  const fetchUsers = async () => {
-    const s = await getDocs(collection(db, "users"));
-    setUsers(s.docs.map(d => ({ id: d.id, ...d.data() })));
-  };
-
+  const fetchUsers = async () => { const s = await getDocs(collection(db, "users")); setUsers(s.docs.map(d => ({ id: d.id, ...d.data() }))); };
   const fetchOrders = async () => {
     const s = await getDocs(collection(db, "orders"));
     const data = s.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -85,95 +69,59 @@ export default function AdminDashboard() {
     setOrders(data);
   };
 
-  // 3. PDF
   const downloadReport = () => {
     try {
       const doc = new jsPDF();
-      doc.text("Reporte Financiero - Snacks Lizama", 14, 20);
-      doc.setFontSize(10);
-      doc.text(`Generado el: ${new Date().toLocaleDateString()}`, 14, 26);
-      const tableRows = orders.map(order => {
-        const date = order.createdAt?.toDate ? order.createdAt.toDate().toLocaleDateString() : new Date(order.createdAt).toLocaleDateString();
-        return [date, order.userName || 'Anónimo', order.type, `$${order.total}`, order.status];
-      });
-      autoTable(doc, { head: [['Fecha', 'Cliente', 'Tipo', 'Total', 'Estado']], body: tableRows, startY: 35 });
-      const totalSales = orders.reduce((acc, curr) => acc + curr.total, 0);
-      const finalY = (doc.lastAutoTable && doc.lastAutoTable.finalY) || 150;
-      doc.setFontSize(14);
-      doc.text(`Venta Total Histórica: $${totalSales}`, 14, finalY + 15);
-      doc.save(`reporte_ventas_${new Date().toISOString().split('T')[0]}.pdf`);
-      showToast("PDF descargado", 'success');
-    } catch (error) { showToast("Error generando PDF", 'error'); }
+      doc.text("Reporte", 14, 20);
+      const tableRows = orders.map(order => [
+        order.createdAt?.toDate ? order.createdAt.toDate().toLocaleDateString() : new Date(order.createdAt).toLocaleDateString(),
+        order.userEmail, order.type, `$${order.total}`, order.status
+      ]);
+      autoTable(doc, { head: [['Fecha', 'Cliente', 'Tipo', 'Total', 'Estado']], body: tableRows, startY: 30 });
+      doc.save(`reporte.pdf`);
+    } catch (e) {}
   };
 
-  // 4. PRODUCTOS
   const handleAddProduct = async (e) => {
-    e.preventDefault();
-    setLoading(true);
+    e.preventDefault(); setLoading(true);
     try {
       let imageUrl = '';
       if (imageFile) {
-          const fd = new FormData();
-          fd.append("file", imageFile);
-          fd.append("upload_preset", UPLOAD_PRESET);
+          const fd = new FormData(); fd.append("file", imageFile); fd.append("upload_preset", UPLOAD_PRESET);
           const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`, { method: "POST", body: fd });
-          const data = await res.json();
-          imageUrl = data.secure_url;
+          const data = await res.json(); imageUrl = data.secure_url;
       }
       await addDoc(collection(db, "products"), { ...newProduct, price: Number(newProduct.price), image: imageUrl, createdAt: new Date() });
-      showToast("Producto Agregado", 'success');
-      setNewProduct({ name: '', price: '', category: 'hamburguesas', description: '', inStock: true });
-      setImageFile(null);
-      fetchProducts();
-    } catch(err) { showToast("Error al guardar", 'error'); }
-    setLoading(false);
+      showToast("Agregado", 'success'); setNewProduct({ name: '', price: '', category: 'hamburguesas', description: '', inStock: true }); setImageFile(null); fetchProducts();
+    } catch(err) { showToast("Error", 'error'); } setLoading(false);
   };
 
   const toggleProductStock = async (product) => {
-      try {
-          await updateDoc(doc(db, "products", product.id), { inStock: !product.inStock });
-          showToast(`Producto ${!product.inStock ? 'Disponible' : 'Agotado'}`, 'success');
-          fetchProducts();
-      } catch (error) { showToast("Error", 'error'); }
+      try { await updateDoc(doc(db, "products", product.id), { inStock: !product.inStock }); showToast("Stock actualizado", 'success'); fetchProducts(); } catch (error) { showToast("Error", 'error'); }
   };
-
-  const handleDeleteProduct = async (id) => {
-      if(confirm("¿Seguro que quieres eliminar este producto?")) {
-          await deleteDoc(doc(db, "products", id));
-          fetchProducts();
-          showToast("Producto eliminado", 'success');
-      }
-  }
-
-  // 5. ROLES
-  const handleUpdateRole = async (uid, role) => {
-    if(window.confirm(`¿Cambiar rol a ${role}?`)) {
-      await updateDoc(doc(db, "users", uid), { role });
-      fetchUsers();
-      showToast("Rol actualizado", 'success');
-    }
-  };
+  const handleDeleteProduct = async (id) => { if(confirm("¿Eliminar?")) { await deleteDoc(doc(db, "products", id)); fetchProducts(); showToast("Eliminado", 'success'); } }
+  const handleUpdateRole = async (uid, role) => { if(window.confirm(`¿Cambiar rol?`)) { await updateDoc(doc(db, "users", uid), { role }); fetchUsers(); showToast("Rol actualizado", 'success'); } };
 
   const ROLES = ['cliente', 'admin', 'hamburguesero', 'productor', 'freidor', 'mesero 1', 'mesero 2', 'repartidor 1', 'repartidor 2'];
   const totalRevenue = orders.reduce((acc, order) => acc + order.total, 0);
 
   return (
-    <div className="p-4 max-w-6xl mx-auto mb-20">
+    <div className="p-4 max-w-6xl mx-auto mb-20 transition-colors duration-300">
       
-      {/* HEADER PRINCIPAL (Con soporte Dark Mode) */}
+      {/* HEADER PRINCIPAL */}
       <div className="flex justify-between items-center mb-6 bg-white dark:bg-gray-800 p-4 rounded-lg shadow border border-gray-200 dark:border-gray-700 transition-colors">
+        {/* TITULO FORZADO A BLANCO EN DARK MODE */}
         <h1 className="text-2xl font-bold text-gray-800 dark:text-white">Panel de Administración</h1>
         <div className="flex items-center gap-3">
-          <span className={`font-bold text-sm px-3 py-1 rounded-full ${isStoreOpen ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' : 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300'}`}>
+          <span className={`font-bold text-sm px-3 py-1 rounded-full ${isStoreOpen ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'}`}>
             {isStoreOpen ? '🟢 ABIERTO' : '🔴 CERRADO'}
           </span>
-          <button onClick={toggleStore} className={`px-4 py-2 rounded text-white font-bold text-xs shadow ${isStoreOpen ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600'}`}>
+          <button onClick={toggleStore} className={`px-4 py-2 rounded text-white font-bold text-xs shadow ${isStoreOpen ? 'bg-red-500' : 'bg-green-500'}`}>
             {isStoreOpen ? 'Cerrar Local' : 'Abrir Local'}
           </button>
         </div>
       </div>
 
-      {/* NAVEGACIÓN PESTAÑAS (Con soporte Dark Mode) */}
       <div className="flex border-b dark:border-gray-700 mb-6 overflow-x-auto bg-white dark:bg-gray-800 rounded-t-lg shadow-sm transition-colors">
         {['menu', 'roles', 'finanzas', 'config'].map((tab) => (
           <button key={tab} onClick={() => setActiveTab(tab)} className={`px-6 py-3 font-bold uppercase text-xs whitespace-nowrap border-b-4 transition-colors ${activeTab === tab ? 'border-orange-600 text-orange-600 bg-orange-50 dark:bg-gray-700 dark:text-orange-400' : 'border-transparent text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
@@ -182,14 +130,13 @@ export default function AdminDashboard() {
         ))}
       </div>
 
-      {/* --- PESTAÑA 1: MENÚ --- */}
+      {/* --- MENU --- */}
       {activeTab === 'menu' && (
         <div className="grid md:grid-cols-3 gap-6">
-            {/* Formulario (Dark Mode) */}
             <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md h-fit border dark:border-gray-700 transition-colors">
                 <h2 className="font-bold text-lg mb-4 text-gray-700 dark:text-white border-b dark:border-gray-700 pb-2">Nuevo Producto</h2>
                 <form onSubmit={handleAddProduct} className="flex flex-col gap-3">
-                    <input type="text" placeholder="Nombre del producto" className="p-2 border dark:border-gray-600 rounded focus:border-orange-500 outline-none dark:bg-gray-700 dark:text-white" value={newProduct.name} onChange={e => setNewProduct({...newProduct, name: e.target.value})} required />
+                    <input type="text" placeholder="Nombre" className="p-2 border dark:border-gray-600 rounded focus:border-orange-500 outline-none dark:bg-gray-700 dark:text-white" value={newProduct.name} onChange={e => setNewProduct({...newProduct, name: e.target.value})} required />
                     <input type="number" placeholder="Precio ($)" className="p-2 border dark:border-gray-600 rounded focus:border-orange-500 outline-none dark:bg-gray-700 dark:text-white" value={newProduct.price} onChange={e => setNewProduct({...newProduct, price: e.target.value})} required />
                     <select className="p-2 border dark:border-gray-600 rounded dark:bg-gray-700 dark:text-white" value={newProduct.category} onChange={e => setNewProduct({...newProduct, category: e.target.value})}>
                         <option value="hamburguesas">Hamburguesas</option>
@@ -200,29 +147,23 @@ export default function AdminDashboard() {
                         <option value="bebidas">Bebidas</option>
                         <option value="box">Box Familiar</option>
                     </select>
-                    <textarea placeholder="Descripción breve" className="p-2 border dark:border-gray-600 rounded focus:border-orange-500 outline-none dark:bg-gray-700 dark:text-white" value={newProduct.description} onChange={e => setNewProduct({...newProduct, description: e.target.value})} />
-                    <label className="text-xs font-bold text-gray-500 dark:text-gray-400">Imagen:</label>
+                    <textarea placeholder="Descripción" className="p-2 border dark:border-gray-600 rounded dark:bg-gray-700 dark:text-white" value={newProduct.description} onChange={e => setNewProduct({...newProduct, description: e.target.value})} />
                     <input type="file" onChange={e => setImageFile(e.target.files[0])} className="text-xs dark:text-gray-300" />
-                    <button disabled={loading} className="bg-green-600 text-white p-2 rounded hover:bg-green-700 font-bold shadow mt-2">{loading ? 'Subiendo...' : 'Guardar Producto'}</button>
+                    <button disabled={loading} className="bg-green-600 text-white p-2 rounded font-bold">Guardar</button>
                 </form>
             </div>
-
-            {/* Lista Inventario (Dark Mode) */}
             <div className="md:col-span-2 bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md border dark:border-gray-700 transition-colors">
-                <h2 className="font-bold text-lg mb-4 text-gray-700 dark:text-white border-b dark:border-gray-700 pb-2">Inventario & Stock</h2>
+                <h2 className="font-bold text-lg mb-4 text-gray-700 dark:text-white border-b dark:border-gray-700 pb-2">Inventario</h2>
                 <div className="overflow-y-auto max-h-[600px] space-y-2 pr-2">
                     {products.map(p => (
                         <div key={p.id} className="flex items-center justify-between p-3 border dark:border-gray-700 rounded hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                             <div className="flex items-center gap-3">
                                 <img src={p.image || 'https://via.placeholder.com/40'} className="w-12 h-12 rounded object-cover border dark:border-gray-600" />
-                                <div>
-                                    <p className="font-bold text-sm text-gray-800 dark:text-white">{p.name}</p>
-                                    <p className="text-xs text-gray-500 dark:text-gray-400 font-mono">${p.price} • {p.category}</p>
-                                </div>
+                                <div><p className="font-bold text-sm text-gray-800 dark:text-white">{p.name}</p><p className="text-xs text-gray-500 dark:text-gray-400">${p.price}</p></div>
                             </div>
                             <div className="flex items-center gap-3">
-                                <button onClick={() => toggleProductStock(p)} className={`px-3 py-1 rounded-full text-xs font-bold border transition-colors ${p.inStock ? 'bg-green-100 text-green-700 border-green-200 dark:bg-green-900 dark:text-green-300 dark:border-green-800' : 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900 dark:text-red-300 dark:border-red-800'}`}>{p.inStock ? 'En Stock' : 'Agotado'}</button>
-                                <button onClick={() => handleDeleteProduct(p.id)} className="text-gray-400 hover:text-red-500 p-2">🗑️</button>
+                                <button onClick={() => toggleProductStock(p)} className={`px-3 py-1 rounded-full text-xs font-bold border ${p.inStock ? 'bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400' : 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400'}`}>{p.inStock ? 'En Stock' : 'Agotado'}</button>
+                                <button onClick={() => handleDeleteProduct(p.id)} className="text-gray-400 dark:text-gray-500 hover:text-red-500 p-2">🗑️</button>
                             </div>
                         </div>
                     ))}
@@ -231,33 +172,18 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* --- PESTAÑA 2: ROLES (Dark Mode) --- */}
+      {/* --- ROLES --- */}
       {activeTab === 'roles' && (
         <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md overflow-x-auto border dark:border-gray-700 transition-colors">
-           <h2 className="font-bold text-lg mb-4 text-gray-700 dark:text-white border-b dark:border-gray-700 pb-2">Gestión de Personal</h2>
-           <table className="w-full text-left border-collapse">
-             <thead>
-                <tr className="bg-orange-50 dark:bg-gray-700 text-orange-800 dark:text-orange-300 text-xs uppercase tracking-wider">
-                    <th className="p-3 rounded-tl-lg">Usuario</th>
-                    <th className="p-3">Rol Actual</th>
-                    <th className="p-3 rounded-tr-lg">Asignar Nuevo Rol</th>
-                </tr>
-             </thead>
-             <tbody className="text-sm">
+           <h2 className="font-bold text-lg mb-4 text-gray-700 dark:text-white border-b dark:border-gray-700 pb-2">Personal</h2>
+           <table className="w-full text-left">
+             <thead><tr className="bg-orange-50 dark:bg-gray-700/50 text-orange-800 dark:text-orange-300 text-xs uppercase"><th className="p-3">Usuario</th><th className="p-3">Rol</th><th className="p-3">Asignar</th></tr></thead>
+             <tbody>
                {users.map(u => (
                  <tr key={u.id} className="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                   <td className="p-3">
-                       <p className="font-bold text-gray-800 dark:text-white">{u.displayName || 'Sin Nombre'}</p>
-                       <p className="text-xs text-gray-500 dark:text-gray-400">{u.email}</p>
-                   </td>
-                   <td className="p-3">
-                       <span className="bg-gray-100 dark:bg-gray-600 px-2 py-1 rounded text-xs font-bold uppercase text-gray-600 dark:text-gray-200 border dark:border-gray-500">{u.role || 'cliente'}</span>
-                   </td>
-                   <td className="p-3">
-                     <select onChange={(e) => handleUpdateRole(u.id, e.target.value)} value={u.role || 'cliente'} className="border dark:border-gray-600 p-2 rounded text-sm bg-white dark:bg-gray-700 dark:text-white focus:border-orange-500 outline-none cursor-pointer">
-                       {ROLES.map(rol => <option key={rol} value={rol}>{rol.toUpperCase()}</option>)}
-                     </select>
-                   </td>
+                   <td className="p-3"><p className="font-bold text-gray-800 dark:text-white">{u.displayName || 'Sin Nombre'}</p><p className="text-xs text-gray-500 dark:text-gray-400">{u.email}</p></td>
+                   <td className="p-3"><span className="bg-gray-100 dark:bg-gray-600 px-2 py-1 rounded text-xs font-bold uppercase text-gray-600 dark:text-gray-200 border dark:border-gray-500">{u.role || 'cliente'}</span></td>
+                   <td className="p-3"><select onChange={(e) => handleUpdateRole(u.id, e.target.value)} value={u.role || 'cliente'} className="border dark:border-gray-600 p-2 rounded text-sm bg-white dark:bg-gray-700 dark:text-white focus:border-orange-500 outline-none">{ROLES.map(rol => <option key={rol} value={rol}>{rol.toUpperCase()}</option>)}</select></td>
                  </tr>
                ))}
              </tbody>
@@ -265,32 +191,24 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* --- PESTAÑA 3: FINANZAS (Dark Mode) --- */}
+      {/* --- FINANZAS --- */}
       {activeTab === 'finanzas' && (
         <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md border dark:border-gray-700 transition-colors">
           <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-            <div><h2 className="text-2xl font-bold text-gray-800 dark:text-white">Reporte Financiero</h2><p className="text-gray-500 dark:text-gray-400 text-sm">Historial completo de ventas</p></div>
-            <div className="bg-green-50 dark:bg-green-900/30 p-4 rounded-xl border border-green-100 dark:border-green-800 text-center min-w-[200px]">
-              <p className="text-xs text-green-600 dark:text-green-400 font-bold uppercase tracking-wider">Ingreso Total</p>
-              <p className="text-3xl font-extrabold text-green-700 dark:text-green-300">${totalRevenue}</p>
-            </div>
+            <div><h2 className="text-2xl font-bold text-gray-800 dark:text-white">Finanzas</h2><p className="text-gray-500 dark:text-gray-400 text-sm">Historial</p></div>
+            <div className="bg-green-50 dark:bg-green-900/30 p-4 rounded-xl border border-green-100 dark:border-green-800 text-center"><p className="text-xs text-green-600 dark:text-green-400 font-bold uppercase">Total</p><p className="text-3xl font-extrabold text-green-700 dark:text-green-300">${totalRevenue}</p></div>
           </div>
-          <div className="flex justify-end mb-4"><button onClick={downloadReport} className="bg-gray-800 dark:bg-gray-700 text-white px-4 py-2 rounded hover:bg-gray-700 dark:hover:bg-gray-600 flex items-center gap-2 text-sm font-bold shadow transition-transform active:scale-95">📄 Descargar Reporte PDF</button></div>
+          <button onClick={downloadReport} className="mb-4 bg-gray-800 text-white px-4 py-2 rounded shadow text-sm font-bold">📄 PDF</button>
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-xs uppercase">
-                    <th className="p-3 rounded-tl-lg">Fecha</th><th className="p-3">Cliente</th><th className="p-3">Detalle</th><th className="p-3">Total</th><th className="p-3 rounded-tr-lg">Estado</th>
-                </tr>
-              </thead>
+              <thead><tr className="bg-gray-100 dark:bg-gray-700/50 text-gray-600 dark:text-gray-300 text-xs uppercase"><th className="p-3">Fecha</th><th className="p-3">Cliente</th><th className="p-3">Total</th><th className="p-3">Estado</th></tr></thead>
               <tbody className="text-sm">
                 {orders.map((order) => (
                     <tr key={order.id} className="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                        <td className="p-3 text-gray-500 dark:text-gray-400 font-mono text-xs">{new Date(order.createdAt?.toDate ? order.createdAt.toDate() : order.createdAt).toLocaleDateString()}</td>
-                        <td className="p-3"><p className="font-bold text-gray-700 dark:text-white">{order.userName || 'Anónimo'}</p><p className="text-xs text-gray-400">{order.userEmail}</p></td>
-                        <td className="p-3"><span className="capitalize dark:text-gray-300">{order.type}</span><span className="text-xs text-gray-400 block">{order.paymentMethod}</span></td>
+                        <td className="p-3 text-gray-500 dark:text-gray-400">{new Date(order.createdAt?.toDate ? order.createdAt.toDate() : order.createdAt).toLocaleDateString()}</td>
+                        <td className="p-3"><p className="font-bold text-gray-700 dark:text-white">{order.userName || 'Anónimo'}</p></td>
                         <td className="p-3 font-bold text-green-600 dark:text-green-400">${order.total}</td>
-                        <td className="p-3"><span className={`px-2 py-1 rounded text-xs font-bold text-white ${order.status === 'completado' || order.status === 'entregado' ? 'bg-green-500' : order.status === 'cancelado' ? 'bg-red-500' : 'bg-yellow-500'}`}>{order.status}</span></td>
+                        <td className="p-3"><span className="px-2 py-1 rounded text-xs font-bold text-white bg-green-500">{order.status}</span></td>
                     </tr>
                 ))}
               </tbody>
@@ -299,16 +217,15 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* --- PESTAÑA 4: CONFIG (Dark Mode) --- */}
+      {/* --- CONFIG --- */}
       {activeTab === 'config' && (
           <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md max-w-lg border dark:border-gray-700 transition-colors">
-              <h2 className="text-xl font-bold mb-4 text-gray-800 dark:text-white border-b dark:border-gray-700 pb-2">⚙️ Configuración del Restaurante</h2>
+              <h2 className="text-xl font-bold mb-4 text-gray-800 dark:text-white border-b dark:border-gray-700 pb-2">⚙️ Configuración</h2>
               <div className="mb-6">
-                  <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Cantidad de Mesas Disponibles</label>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">Define cuántas mesas aparecerán en el menú desplegable del carrito.</p>
+                  <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Mesas Disponibles</label>
                   <div className="flex gap-3 items-center">
-                      <input type="number" min="1" max="100" value={tableCount} onChange={(e) => setTableCount(e.target.value)} className="border-2 border-gray-300 dark:border-gray-600 p-2 rounded-lg w-24 text-center font-bold text-xl focus:border-orange-500 outline-none dark:bg-gray-700 dark:text-white" />
-                      <button onClick={handleUpdateTables} disabled={loading} className="bg-orange-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-orange-700 shadow transition-transform active:scale-95 disabled:bg-gray-400">{loading ? 'Guardando...' : 'Actualizar Mesas'}</button>
+                      <input type="number" min="1" max="100" value={tableCount} onChange={(e) => setTableCount(e.target.value)} className="border-2 border-gray-300 dark:border-gray-600 p-2 rounded-lg w-24 text-center font-bold text-xl dark:bg-gray-700 dark:text-white" />
+                      <button onClick={handleUpdateTables} disabled={loading} className="bg-orange-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-orange-700">Actualizar</button>
                   </div>
               </div>
           </div>
