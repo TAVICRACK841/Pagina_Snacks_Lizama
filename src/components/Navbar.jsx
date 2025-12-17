@@ -2,22 +2,18 @@ import { useState, useEffect } from 'react';
 import { auth, db } from '../firebase/config';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { doc, onSnapshot } from 'firebase/firestore';
-import { FaMoon, FaSun, FaBars } from 'react-icons/fa'; // Agregamos iconos
+import { FaMoon, FaSun } from 'react-icons/fa'; 
 
 export default function Navbar() {
   const [user, setUser] = useState(null);
   const [userData, setUserData] = useState({});
   const [menuOpen, setMenuOpen] = useState(false);
-  const [theme, setTheme] = useState('light'); // Estado del tema
+  const [theme, setTheme] = useState('light'); 
 
   useEffect(() => {
-    // 1. Detectar tema al cargar
-    if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-      setTheme('dark');
-      document.documentElement.classList.add('dark');
-    } else {
-      setTheme('light');
-      document.documentElement.classList.remove('dark');
+    // 1. Detectar tema
+    if (document.documentElement.classList.contains('dark')) {
+        setTheme('dark');
     }
 
     // 2. Auth
@@ -35,7 +31,6 @@ export default function Navbar() {
     return () => unsubscribe();
   }, []);
 
-  // Función para cambiar tema
   const toggleTheme = () => {
       if (theme === 'light') {
           setTheme('dark');
@@ -70,7 +65,7 @@ export default function Navbar() {
             {/* BOTÓN MODO OSCURO */}
             <button 
                 onClick={toggleTheme} 
-                className="p-2 rounded-full bg-white/20 hover:bg-white/30 transition text-yellow-300"
+                className="p-2 rounded-full bg-black/20 hover:bg-black/40 transition text-yellow-300 border border-transparent dark:border-gray-600"
                 title="Cambiar Tema"
             >
                 {theme === 'dark' ? <FaSun /> : <FaMoon className="text-white"/>}
@@ -86,8 +81,7 @@ export default function Navbar() {
 
                 <div className="relative">
                   <button onClick={() => setMenuOpen(!menuOpen)} className="flex items-center gap-2 focus:outline-none">
-                    <span className="hidden md:block font-bold text-sm">{displayName}</span>
-                    <div className="w-10 h-10 rounded-full bg-white text-orange-600 flex items-center justify-center font-bold overflow-hidden border-2 border-white dark:border-gray-600">
+                    <div className="w-10 h-10 rounded-full bg-white text-orange-600 flex items-center justify-center font-bold overflow-hidden border-2 border-white dark:border-gray-500">
                       {photoURL ? (
                         <img src={photoURL} alt="Perfil" className="w-full h-full object-cover" />
                       ) : (
@@ -99,11 +93,22 @@ export default function Navbar() {
                   {menuOpen && (
                     <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-gray-800 rounded-md shadow-lg py-1 text-gray-800 dark:text-white z-50 animate-fade-in-down border dark:border-gray-700">
                       {role && <div className="px-4 py-2 border-b dark:border-gray-700 text-xs text-gray-500 dark:text-gray-400 capitalize">Rol: {role}</div>}
+                      
                       <a href="/menu" className="block px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700">📋 Ver Menú</a>
                       <a href="/orders" className="block px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700">📦 Mis Pedidos</a>
                       <a href="/profile" className="block px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700">👤 Mi Perfil</a>
-                      {role === 'admin' && <a href="/admin" className="block px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-orange-600 font-semibold">🛠️ Administración</a>}
-                      <button onClick={handleLogout} className="block w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-red-600 font-bold">🚪 Cerrar Sesión</button>
+                      <a href="/wallet" className="block px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700">💳 Mi Billetera</a>
+                      
+                      {role === 'admin' && (
+                        <a href="/admin" className="block px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-orange-600 font-semibold">🛠️ Administración</a>
+                      )}
+
+                      <button 
+                        onClick={handleLogout}
+                        className="block w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-red-600 font-bold"
+                      >
+                        🚪 Cerrar Sesión
+                      </button>
                     </div>
                   )}
                 </div>

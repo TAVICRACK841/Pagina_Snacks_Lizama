@@ -1,14 +1,10 @@
-// ... (Tus imports se mantienen igual, solo cambia el return del componente)
-// Asegúrate de copiar todo el archivo o reemplazar el 'return' si sabes cómo.
-// Para evitar errores, te paso el archivo COMPLETO adaptado:
-
 import { useState, useEffect, Suspense } from 'react';
 import React from 'react';
 import { auth, db } from '../firebase/config';
 import { doc, onSnapshot, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
 import { updatePassword, signOut } from 'firebase/auth';
 import { showToast } from '../stores/toastStore';
-import { FaTrash, FaMapMarkerAlt, FaHome, FaKey, FaUserPlus, FaExchangeAlt, FaTimes, FaPen, FaSave } from 'react-icons/fa';
+import { FaTrash, FaMapMarkerAlt, FaHome, FaKey, FaUserPlus, FaExchangeAlt, FaPen, FaSave, FaCreditCard } from 'react-icons/fa';
 
 const MapPicker = React.lazy(() => import('./MapPicker'));
 
@@ -49,7 +45,6 @@ export default function UserProfile() {
   const saveAccountToHistory = (account) => { if (typeof window === 'undefined') return; let accounts = JSON.parse(localStorage.getItem('snacks_saved_accounts') || '[]'); accounts = accounts.filter(a => a.uid !== account.uid); accounts.push(account); localStorage.setItem('snacks_saved_accounts', JSON.stringify(accounts)); setSavedAccounts(accounts); };
   const handleSwitchAccount = async (targetEmail) => { await signOut(auth); window.location.href = `/?email=${targetEmail}`; };
   const handleAddAccount = async () => { await signOut(auth); window.location.href = '/'; };
-  const handleRemoveAccountFromHistory = (e, uidToRemove) => { e.stopPropagation(); const updated = savedAccounts.filter(a => a.uid !== uidToRemove); localStorage.setItem('snacks_saved_accounts', JSON.stringify(updated)); setSavedAccounts(updated); };
   const handleMapConfirm = async (addressData) => { if (!addressData) return; try { const docRef = doc(db, "users", user.uid); if (editingAddress) await updateDoc(docRef, { savedAddresses: arrayRemove(editingAddress) }); const newAddressObj = { id: editingAddress ? editingAddress.id : Date.now(), text: addressData.text, alias: addressData.alias, coords: addressData.coords }; await updateDoc(docRef, { savedAddresses: arrayUnion(newAddressObj), address: newAddressObj.text }); setShowMap(false); setEditingAddress(null); showToast("Dirección guardada", "success"); } catch (e) { showToast("Error", "error"); } };
   const startEditAddress = (addr) => { setEditingAddress(addr); setShowMap(true); };
   const removeAddress = async (addr) => { if(!confirm("¿Borrar?")) return; await updateDoc(doc(db, "users", user.uid), { savedAddresses: arrayRemove(addr) }); };
@@ -81,7 +76,6 @@ export default function UserProfile() {
                                     <p className="font-bold text-sm truncate text-gray-800 dark:text-white">{acc.displayName}</p>
                                     <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{acc.email}</p>
                                 </div>
-                                {acc.uid === user.uid && <span className="text-green-500 text-xs font-bold">Activa</span>}
                             </div>
                         ))}
                     </div>
@@ -124,6 +118,29 @@ export default function UserProfile() {
               ))}
           </div>
       </div>
+
+      {/* SECCIÓN DE BILLETERA (LINK) */}
+      <div className="mt-8 pt-6 border-t dark:border-gray-700">
+          <div className="flex justify-between items-center mb-4">
+              <h3 className="font-bold text-lg flex items-center gap-2 text-gray-700 dark:text-white">
+                  <FaCreditCard className="text-orange-500"/> Billetera Digital
+              </h3>
+          </div>
+          
+          <a href="/wallet" className="block w-full bg-gradient-to-r from-gray-800 to-gray-900 text-white p-6 rounded-xl shadow-lg hover:shadow-xl hover:scale-[1.01] transition-all group relative overflow-hidden">
+              <div className="relative z-10 flex justify-between items-center">
+                  <div>
+                      <p className="font-bold text-lg">Gestionar mis Tarjetas</p>
+                      <p className="text-sm text-gray-300">Agrega, edita o elimina tus métodos de pago.</p>
+                  </div>
+                  <div className="bg-white/20 p-3 rounded-full group-hover:bg-white/30 transition">
+                      <FaCreditCard className="text-2xl" />
+                  </div>
+              </div>
+              <div className="absolute -right-10 -bottom-10 text-9xl opacity-10 rotate-12 pointer-events-none"><FaCreditCard/></div>
+          </a>
+      </div>
+
     </div>
   );
 }

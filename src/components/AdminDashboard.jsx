@@ -4,7 +4,7 @@ import { collection, addDoc, getDocs, doc, updateDoc, setDoc, onSnapshot, delete
 import { jsPDF } from "jspdf";
 import autoTable from 'jspdf-autotable';
 import { showToast } from '../stores/toastStore';
-import { FaTrash, FaCreditCard, FaEye, FaFilePdf, FaCalendarAlt } from 'react-icons/fa';
+import { FaTrash, FaCreditCard, FaEye, FaFilePdf, FaCalendarAlt, FaCheckCircle, FaStar } from 'react-icons/fa';
 import { getBankStyle, BANK_OPTIONS } from '../utils/bankStyles';
 
 export default function AdminDashboard() {
@@ -14,6 +14,9 @@ export default function AdminDashboard() {
   
   const [tableCount, setTableCount] = useState(15); 
   const [accounts, setAccounts] = useState([]);
+  // NUEVO ESTADO: ID de la cuenta donde cae el dinero de tarjetas
+  const [cardDepositId, setCardDepositId] = useState(null); 
+  
   const [newAccount, setNewAccount] = useState({ bank: 'BBVA', name: '', number: '' });
 
   const CLOUD_NAME = import.meta.env.PUBLIC_CLOUDINARY_CLOUD_NAME || "dw5mio6d9"; 
@@ -33,6 +36,8 @@ export default function AdminDashboard() {
           setIsStoreOpen(data.isOpen);
           if (data.tableCount) setTableCount(data.tableCount);
           if (data.accounts && Array.isArray(data.accounts)) setAccounts(data.accounts);
+          // CARGAR LA CUENTA PREDETERMINADA
+          if (data.cardDepositId) setCardDepositId(data.cardDepositId);
       }
     });
     return () => unsub();
@@ -51,7 +56,8 @@ export default function AdminDashboard() {
       try {
         await setDoc(doc(db, "store_config", "main"), { 
             tableCount: Number(tableCount),
-            accounts: accounts
+            accounts: accounts,
+            cardDepositId: cardDepositId // GUARDAMOS LA SELECCIÓN
         }, { merge: true });
         showToast("Configuración guardada", 'success');
       } catch (error) { showToast("Error al guardar", 'error'); }
@@ -71,7 +77,11 @@ export default function AdminDashboard() {
       setNewAccount({ bank: 'BBVA', name: '', number: '' });
       showToast("Cuenta agregada", "info");
   };
-  const handleDeleteAccount = (id) => setAccounts(accounts.filter(acc => acc.id !== id));
+  
+  const handleDeleteAccount = (id) => {
+      setAccounts(accounts.filter(acc => acc.id !== id));
+      if (cardDepositId === id) setCardDepositId(null); // Si borras la default, reseteamos
+  };
 
   useEffect(() => {
     if (activeTab === 'menu') fetchProducts();
@@ -113,7 +123,6 @@ export default function AdminDashboard() {
       return new Date(yB, mB - 1, dB) - new Date(yA, mA - 1, dA);
   });
 
-  // --- PDF CORREGIDO PARA MOSTRAR NOMBRE ---
   const downloadReport = (ordersList, dateLabel) => {
     try {
       const doc = new jsPDF();
@@ -130,21 +139,20 @@ export default function AdminDashboard() {
       
       const tableRows = ordersList.map(order => [
         order.createdAt?.toDate ? order.createdAt.toDate().toLocaleTimeString() : new Date(order.createdAt).toLocaleTimeString(),
-        // AQUÍ ESTÁ EL CAMBIO: userName en lugar de userEmail
         order.userName || 'Cliente', 
         order.type.toUpperCase(), 
-        order.paymentMethod.toUpperCase(),
+        `${order.paymentMethod.toUpperCase()} ${order.bankDetails ? `(${order.bankDetails})` : ''}`,
         `$${order.total}`, 
         order.status.toUpperCase()
       ]);
 
       autoTable(doc, { 
-          head: [['HORA', 'CLIENTE', 'TIPO', 'PAGO', 'TOTAL', 'ESTADO']], 
+          head: [['HORA', 'CLIENTE', 'TIPO', 'PAGO / DETALLE', 'TOTAL', 'ESTADO']], 
           body: tableRows, 
           startY: 35,
           theme: 'striped',
           headStyles: { fillColor: [31, 41, 55] }, 
-          styles: { fontSize: 10 },
+          styles: { fontSize: 8 }, 
           alternateRowStyles: { fillColor: [243, 244, 246] }
       });
 
@@ -239,7 +247,7 @@ export default function AdminDashboard() {
              <tbody>
                {users.map(u => (
                  <tr key={u.id} className="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700">
-                   <td className="p-3"><p className="font-bold text-gray-800 dark:text-white">{u.displayName || 'Sin Nombre'}</p><p className="text-xs text-gray-500 dark:text-gray-400">{u.email}</p></td>
+                   <td className="p-3"><p className="font-bold text-gray-800 dark:text-white">{u.displayName}</p><p className="text-xs text-gray-500 dark:text-gray-400">{u.email}</p></td>
                    <td className="p-3"><span className="bg-gray-100 dark:bg-gray-600 px-2 py-1 rounded text-xs uppercase text-gray-600 dark:text-gray-200">{u.role}</span></td>
                    <td className="p-3"><select onChange={(e) => handleUpdateRole(u.id, e.target.value)} value={u.role || 'cliente'} className="border dark:border-gray-600 p-2 rounded text-sm bg-white dark:bg-gray-700 dark:text-white">{ROLES.map(rol => <option key={rol} value={rol}>{rol.toUpperCase()}</option>)}</select></td>
                  </tr>
@@ -275,13 +283,20 @@ export default function AdminDashboard() {
                         </div>
                         <div className="overflow-x-auto">
                             <table className="w-full text-left border-collapse">
-                                <thead><tr className="bg-gray-50 dark:bg-gray-700/50 text-xs uppercase text-gray-600 dark:text-gray-300"><th className="p-3">Hora</th><th className="p-3">Cliente</th><th className="p-3">Tipo</th><th className="p-3">Total</th><th className="p-3">Estado</th><th className="p-3">Acciones</th></tr></thead>
+                                <thead><tr className="bg-gray-50 dark:bg-gray-700/50 text-xs uppercase text-gray-600 dark:text-gray-300"><th className="p-3">Hora</th><th className="p-3">Cliente</th><th className="p-3">Tipo / Detalle</th><th className="p-3">Total</th><th className="p-3">Estado</th><th className="p-3">Acciones</th></tr></thead>
                                 <tbody className="text-sm">
                                     {dailyOrders.map(order => (
                                         <tr key={order.id} className="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                                             <td className="p-3 text-gray-500 dark:text-gray-400 font-mono">{order.createdAt?.toDate ? order.createdAt.toDate().toLocaleTimeString() : new Date(order.createdAt).toLocaleTimeString()}</td>
                                             <td className="p-3"><p className="font-bold text-gray-700 dark:text-white">{order.userName || 'Anónimo'}</p><p className="text-xs text-gray-400">{order.userEmail}</p></td>
-                                            <td className="p-3 capitalize dark:text-gray-300">{order.type} <span className="text-xs text-gray-400">({order.paymentMethod})</span></td>
+                                            <td className="p-3">
+                                                <p className="capitalize font-bold dark:text-gray-300">{order.type} <span className="text-xs font-normal text-gray-500">({order.paymentMethod})</span></p>
+                                                {order.bankDetails && (
+                                                    <p className="text-xs text-blue-600 dark:text-blue-400 font-bold mt-1">
+                                                        {order.paymentMethod === 'transferencia' ? '➡ A:' : '💳 De:'} {order.bankDetails}
+                                                    </p>
+                                                )}
+                                            </td>
                                             <td className="p-3 font-bold text-green-600 dark:text-green-400">${order.total}</td>
                                             <td className="p-3"><span className={`px-2 py-1 rounded text-xs font-bold text-white ${order.status === 'cancelado' ? 'bg-red-500' : 'bg-green-500'}`}>{order.status}</span></td>
                                             <td className="p-3 flex gap-2">
@@ -310,6 +325,10 @@ export default function AdminDashboard() {
 
               <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md border dark:border-gray-700 relative">
                   <h2 className="text-xl font-bold mb-4 text-gray-800 dark:text-white border-b dark:border-gray-700 pb-2">💳 Cuentas Bancarias</h2>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                    Selecciona con la estrella ⭐ la cuenta donde se depositan los pagos con Tarjeta.
+                  </p>
+                  
                   <form onSubmit={handleAddAccount} className="mb-6 bg-gray-50 dark:bg-gray-700/30 p-4 rounded border dark:border-gray-700">
                       <div className="grid grid-cols-2 gap-3 mb-3">
                           <div>
@@ -332,10 +351,34 @@ export default function AdminDashboard() {
 
                   <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
                       {accounts.map(acc => (
-                          <div key={acc.id} className={`p-4 rounded-xl shadow-md relative overflow-hidden text-white ${getBankStyle(acc.bank)}`}>
+                          <div 
+                              key={acc.id} 
+                              className={`p-4 rounded-xl shadow-md relative overflow-hidden text-white transition-all 
+                                  ${getBankStyle(acc.bank)} 
+                                  ${cardDepositId === acc.id ? 'ring-4 ring-yellow-400 scale-[1.02]' : ''}
+                              `}
+                          >
                               <div className="flex justify-between items-start relative z-10">
-                                  <div className="flex items-center gap-2"><FaCreditCard className="opacity-80"/><span className="font-bold tracking-wider">{acc.bank}</span></div>
-                                  <button onClick={() => handleDeleteAccount(acc.id)} className="opacity-60 hover:opacity-100"><FaTrash/></button>
+                                  <div className="flex items-center gap-2">
+                                      <FaCreditCard className="opacity-80"/>
+                                      <span className="font-bold tracking-wider">{acc.bank}</span>
+                                      {cardDepositId === acc.id && (
+                                          <span className="bg-yellow-400 text-black text-[10px] font-bold px-2 py-1 rounded-full flex items-center gap-1 shadow">
+                                              <FaCheckCircle/> Recibe Tarjetas
+                                          </span>
+                                      )}
+                                  </div>
+                                  <div className="flex gap-2">
+                                      {/* BOTÓN ESTRELLA PARA SELECCIONAR DEFAULT */}
+                                      <button 
+                                          onClick={() => setCardDepositId(acc.id)} 
+                                          className={`p-1 hover:scale-125 transition ${cardDepositId === acc.id ? 'text-yellow-300' : 'text-white/50 hover:text-white'}`}
+                                          title="Usar esta cuenta para cobros con Tarjeta"
+                                      >
+                                          <FaStar size={18}/>
+                                      </button>
+                                      <button onClick={() => handleDeleteAccount(acc.id)} className="opacity-60 hover:opacity-100 hover:text-red-200"><FaTrash/></button>
+                                  </div>
                               </div>
                               <div className="mt-4 relative z-10">
                                   <p className="font-mono text-lg tracking-wider mb-2 break-all">{acc.number}</p>
