@@ -3,12 +3,18 @@ import { db } from '../firebase/config';
 import { collection, getDocs, query, orderBy } from 'firebase/firestore';
 import { addToCart } from '../stores/cartStore';
 import { showToast } from '../stores/toastStore';
-import { FaSearch } from 'react-icons/fa';
+import { FaSearch, FaEdit, FaShoppingCart } from 'react-icons/fa';
+
+// 1. IMPORTAMOS EL COMPONENTE DE PERSONALIZACIÓN
+import ProductCustomizer from './ProductCustomizer';
 
 export default function MenuGrid() {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  
+  // 2. ESTADO PARA CONTROLAR EL MODAL
+  const [customizingProduct, setCustomizingProduct] = useState(null);
 
   useEffect(() => {
     const fetchProducts = async () => {
@@ -31,16 +37,33 @@ export default function MenuGrid() {
 
   const filteredProducts = products.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()));
 
+  // 3. FUNCIÓN PARA MANEJAR EL CLICK
+  const handleAddToCartClick = (product) => {
+      if (product.allowsCustomization) {
+          // Si permite personalizar, abrimos el modal
+          setCustomizingProduct(product);
+      } else {
+          // Si es producto simple (ej. refresco), va directo al carrito
+          addToCart(product);
+          showToast(`¡${product.name} agregado!`, 'success');
+      }
+  };
+
+  // 4. FUNCIÓN QUE SE EJECUTA AL CONFIRMAR LA PERSONALIZACIÓN
+  const handleCustomizedAdd = (finalProduct) => {
+      addToCart(finalProduct);
+      showToast(`¡${finalProduct.name} agregado!`, 'success');
+      setCustomizingProduct(null); // Cerramos el modal
+  };
+
   if (loading) return <div className="p-20 text-center dark:text-white">Cargando...</div>;
 
   return (
     <div className="max-w-7xl mx-auto p-4 mb-24">
       
-      {/* HEADER Y BUSCADOR */}
-      {/* Agregamos dark:bg-gray-800 para que la barra tenga fondo en modo oscuro */}
+      {/* HEADER Y BUSCADOR (Igual que antes) */}
       <div className="mb-8 flex flex-col md:flex-row justify-between items-center gap-4 sticky top-20 bg-gray-100 dark:bg-gray-800 z-40 p-4 rounded-xl transition-colors shadow-sm dark:shadow-md border border-transparent dark:border-gray-700">
         <div>
-            {/* TÍTULO CORREGIDO A BLANCO */}
             <h2 className="text-3xl font-bold text-gray-800 dark:text-white transition-colors">
               Nuestro <span className="text-orange-600">Menú</span>
             </h2>
@@ -52,7 +75,6 @@ export default function MenuGrid() {
           <input 
             type="text" 
             placeholder="Buscar alitas, burgers..." 
-            // Input corregido para tener fondo oscuro y letra blanca
             className="w-full pl-12 pr-4 py-3 border border-gray-300 dark:border-gray-600 rounded-full shadow-sm focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-200 dark:focus:ring-orange-900 transition-all bg-white dark:bg-gray-700 text-gray-800 dark:text-white"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
@@ -81,9 +103,9 @@ export default function MenuGrid() {
               </div>
               
               <div className="p-5 flex-1 flex flex-col justify-between relative">
-                 <div className="absolute top-0 right-0 transform translate-x-2 -translate-y-1/2 bg-orange-600 text-white px-3 py-1 rounded-full font-bold shadow-sm text-sm">
+                  <div className="absolute top-0 right-0 transform translate-x-2 -translate-y-1/2 bg-orange-600 text-white px-3 py-1 rounded-full font-bold shadow-sm text-sm">
                     ${product.price}
-                 </div>
+                  </div>
 
                 <div>
                   <div className="mb-2 pt-2">
@@ -97,17 +119,18 @@ export default function MenuGrid() {
 
                 <button 
                   disabled={!product.inStock}
-                  onClick={() => {
-                    addToCart(product);
-                    showToast(`¡${product.name} agregado!`, 'success');
-                  }}
+                  onClick={() => handleAddToCartClick(product)} // <--- AQUÍ USAMOS LA NUEVA FUNCIÓN
                   className={`w-full py-3 rounded-xl font-bold transition-all transform active:scale-95 flex items-center justify-center gap-2 ${
                     product.inStock 
-                      ? 'bg-gradient-to-r from-orange-500 to-orange-600 text-white hover:from-orange-600 hover:to-orange-700 shadow-md hover:shadow-lg' 
+                      ? product.allowsCustomization 
+                        ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-md' // Color azul si es personalizable
+                        : 'bg-gradient-to-r from-orange-500 to-orange-600 text-white hover:from-orange-600 hover:to-orange-700 shadow-md'
                       : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'
                   }`}
                 >
-                  {product.inStock ? 'Añadir al Carrito' : 'No Disponible'}
+                  {product.inStock ? (
+                      product.allowsCustomization ? <><FaEdit /> Personalizar</> : 'Añadir al Carrito'
+                  ) : 'No Disponible'}
                 </button>
               </div>
             </div>
@@ -122,6 +145,16 @@ export default function MenuGrid() {
           </div>
         )}
       </div>
+
+      {/* 5. RENDERIZADO DEL MODAL (FUERA DEL LOOP) */}
+      {customizingProduct && (
+        <ProductCustomizer 
+            product={customizingProduct}
+            onClose={() => setCustomizingProduct(null)}
+            onAddToCart={handleCustomizedAdd}
+        />
+      )}
+
     </div>
   );
 }
