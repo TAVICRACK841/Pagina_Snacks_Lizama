@@ -6,6 +6,7 @@ import { updatePassword, signOut } from 'firebase/auth';
 import { showToast } from '../stores/toastStore';
 import { FaTrash, FaMapMarkerAlt, FaHome, FaKey, FaUserPlus, FaExchangeAlt, FaPen, FaSave, FaCreditCard } from 'react-icons/fa';
 
+// Asegúrate de que este componente exista en tu proyecto o cámbialo por el mapa directo
 const MapPicker = React.lazy(() => import('./MapPicker'));
 
 export default function UserProfile() {
@@ -118,28 +119,8 @@ export default function UserProfile() {
               ))}
           </div>
       </div>
-
-      {/* SECCIÓN DE BILLETERA (LINK) */}
-      <div className="mt-8 pt-6 border-t dark:border-gray-700">
-          <div className="flex justify-between items-center mb-4">
-              <h3 className="font-bold text-lg flex items-center gap-2 text-gray-700 dark:text-white">
-                  <FaCreditCard className="text-orange-500"/> Billetera Digital
-              </h3>
-          </div>
-          
-          <a href="/wallet" className="block w-full bg-gradient-to-r from-gray-800 to-gray-900 text-white p-6 rounded-xl shadow-lg hover:shadow-xl hover:scale-[1.01] transition-all group relative overflow-hidden">
-              <div className="relative z-10 flex justify-between items-center">
-                  <div>
-                      <p className="font-bold text-lg">Gestionar mis Tarjetas</p>
-                      <p className="text-sm text-gray-300">Agrega, edita o elimina tus métodos de pago.</p>
-                  </div>
-                  <div className="bg-white/20 p-3 rounded-full group-hover:bg-white/30 transition">
-                      <FaCreditCard className="text-2xl" />
-                  </div>
-              </div>
-              <div className="absolute -right-10 -bottom-10 text-9xl opacity-10 rotate-12 pointer-events-none"><FaCreditCard/></div>
-          </a>
-      </div>
+      
+      {/* SECCIÓN DE BILLETERA ELIMINADA AQUÍ */}
 
     </div>
   );

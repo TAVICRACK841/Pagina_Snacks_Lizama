@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { auth, db } from '../firebase/config';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { doc, onSnapshot, getDoc, setDoc } from 'firebase/firestore';
 import { FaMoon, FaSun } from 'react-icons/fa'; 
 
 export default function Navbar() {
@@ -16,11 +16,56 @@ export default function Navbar() {
         setTheme('dark');
     }
 
-    // 2. Auth
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    // 2. Auth y Sincronización Inteligente de Datos
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
         setUser(currentUser);
-        onSnapshot(doc(db, "users", currentUser.uid), (docSnap) => {
+
+        const userRef = doc(db, "users", currentUser.uid);
+        const userSnap = await getDoc(userRef);
+
+        // Obtenemos los datos frescos de Google/Proveedor
+        const googleName = currentUser.displayName;
+        const googlePhoto = currentUser.photoURL;
+        const emailName = currentUser.email.split('@')[0];
+
+        // Definimos el nombre final: Prioridad Google > Correo recortado
+        const finalName = googleName || emailName;
+
+        if (userSnap.exists()) {
+            // --- USUARIO EXISTENTE (LÓGICA DE ACTUALIZACIÓN) ---
+            const currentData = userSnap.data();
+            
+            // Revisamos si le falta el nombre o la foto en la BD
+            // O si su nombre actual es solo el correo (queremos el nombre real)
+            const needsUpdate = 
+                !currentData.displayName || 
+                currentData.displayName === currentUser.email ||
+                (!currentData.photoURL && googlePhoto);
+
+            if (needsUpdate) {
+                // Actualizamos SOLO los datos faltantes sin tocar roles ni direcciones
+                await setDoc(userRef, {
+                    displayName: currentData.displayName || finalName, // Si ya tiene un nombre personalizado, lo respetamos. Si no, ponemos el de Google.
+                    photoURL: currentData.photoURL || googlePhoto,
+                    lastLogin: new Date().toISOString()
+                }, { merge: true });
+                console.log("✅ Perfil de usuario actualizado con datos de Google.");
+            }
+        } else {
+            // --- USUARIO NUEVO (REGISTRO) ---
+            await setDoc(userRef, {
+                displayName: finalName,
+                email: currentUser.email,
+                photoURL: googlePhoto || null,
+                role: 'cliente',
+                savedAddresses: [],
+                createdAt: new Date().toISOString()
+            });
+        }
+
+        // Escuchar cambios en tiempo real
+        onSnapshot(userRef, (docSnap) => {
             if (docSnap.exists()) setUserData(docSnap.data());
         });
       } else {
@@ -62,7 +107,6 @@ export default function Navbar() {
 
         <div className="flex items-center gap-4">
             
-            {/* BOTÓN MODO OSCURO */}
             <button 
                 onClick={toggleTheme} 
                 className="p-2 rounded-full bg-black/20 hover:bg-black/40 transition text-yellow-300 border border-transparent dark:border-gray-600"
@@ -97,7 +141,6 @@ export default function Navbar() {
                       <a href="/menu" className="block px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700">📋 Ver Menú</a>
                       <a href="/orders" className="block px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700">📦 Mis Pedidos</a>
                       <a href="/profile" className="block px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700">👤 Mi Perfil</a>
-                      <a href="/wallet" className="block px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700">💳 Mi Billetera</a>
                       
                       {role === 'admin' && (
                         <a href="/admin" className="block px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-orange-600 font-semibold">🛠️ Administración</a>

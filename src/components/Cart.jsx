@@ -2,10 +2,19 @@ import { useStore } from '@nanostores/react';
 import { isCartOpen, cartItems, removeFromCart, updateQuantity, clearCart } from '../stores/cartStore';
 import { useState, useEffect } from 'react';
 import { auth, db } from '../firebase/config';
-import { addDoc, collection, doc, onSnapshot, getDoc } from 'firebase/firestore';
+import { addDoc, collection, doc, onSnapshot, getDoc, updateDoc } from 'firebase/firestore';
 import { showToast } from '../stores/toastStore';
-import { FaCopy, FaArrowRight, FaArrowLeft, FaUpload, FaCheck, FaCreditCard, FaTrash, FaPlus } from 'react-icons/fa';
+import { FaCopy, FaArrowRight, FaArrowLeft, FaUpload, FaCheck, FaCreditCard, FaMoneyBillWave, FaShoppingBag } from 'react-icons/fa';
 import { getBankStyle } from '../utils/bankStyles';
+import { initMercadoPago, Wallet } from '@mercadopago/sdk-react';
+
+const publicKey = import.meta.env.PUBLIC_MP_KEY;
+if (publicKey) {
+    initMercadoPago(publicKey, { locale: 'es-MX' });
+}
+
+const MP_PERCENTAGE = 0.05; 
+const MP_FIXED_FEE = 5;     
 
 export default function Cart() {
   const $isCartOpen = useStore(isCartOpen);
@@ -13,7 +22,6 @@ export default function Cart() {
   const [user, setUser] = useState(null);
   const [userData, setUserData] = useState({});
 
-  // ESTADOS
   const [orderType, setOrderType] = useState('mesa');
   const [tableNumber, setTableNumber] = useState('');
   const [selectedAddress, setSelectedAddress] = useState('');
@@ -21,21 +29,24 @@ export default function Cart() {
   const [loading, setLoading] = useState(false);
   const [availableTables, setAvailableTables] = useState([]);
   
-  // ESTADOS TRANSFERENCIA
   const [transferStep, setTransferStep] = useState(1);
   const [transferFile, setTransferFile] = useState(null);
   const [uploading, setUploading] = useState(false);
-  
-  // ESTADOS BANCO ADMIN
   const [accounts, setAccounts] = useState([]);
   const [selectedBankInfo, setSelectedBankInfo] = useState(null);
-  const [cardDepositId, setCardDepositId] = useState(null); // NUEVO
 
-  // ESTADOS TARJETA CLIENTE
-  const [selectedUserCard, setSelectedUserCard] = useState(null);
+  const [preferenceId, setPreferenceId] = useState(null);
+  // Estado para evitar crear múltiples pedidos si el usuario da muchos clics
+  const [currentOrderId, setCurrentOrderId] = useState(null);
 
   const CLOUD_NAME = import.meta.env.PUBLIC_CLOUDINARY_CLOUD_NAME || "dw5mio6d9"; 
   const UPLOAD_PRESET = import.meta.env.PUBLIC_CLOUDINARY_PRESET || "Snacks_Lizama"; 
+
+  const subtotal = $cartItems.reduce((acc, item) => acc + item.price * item.quantity, 0);
+  const commission = paymentMethod === 'mercadopago' 
+      ? Math.ceil((subtotal * MP_PERCENTAGE) + MP_FIXED_FEE) 
+      : 0;
+  const total = subtotal + commission;
 
   useEffect(() => {
     const fetchConfig = async () => {
@@ -43,13 +54,8 @@ export default function Cart() {
             const configSnap = await getDoc(doc(db, "store_config", "main"));
             if (configSnap.exists()) {
                 const data = configSnap.data();
-                const total = data.tableCount || 15;
-                setAvailableTables(Array.from({length: total}, (_, i) => i + 1));
+                setAvailableTables(Array.from({length: data.tableCount || 15}, (_, i) => i + 1));
                 if (data.accounts && Array.isArray(data.accounts)) setAccounts(data.accounts);
-                // CARGAR LA ID DE LA CUENTA "DEFAULT" PARA TARJETAS
-                if (data.cardDepositId) setCardDepositId(data.cardDepositId);
-            } else {
-                setAvailableTables(Array.from({length: 15}, (_, i) => i + 1));
             }
         } catch (e) { console.error(e); }
     };
@@ -66,81 +72,126 @@ export default function Cart() {
     return () => unsubscribe();
   }, []);
 
-  const total = $cartItems.reduce((acc, item) => acc + item.price * item.quantity, 0);
+  // --- NUEVA LÓGICA DE MERCADO PAGO ---
+  const createPreference = async () => {
+      // Validaciones básicas antes de generar nada
+      if (!user) return showToast("Inicia sesión para pagar", "error");
+      if ($cartItems.length === 0) return;
 
-  const copyToClipboard = () => {
-      if(!selectedBankInfo) return;
-      navigator.clipboard.writeText(selectedBankInfo.number.replace(/\s/g, ''));
-      showToast("¡Número copiado!", "success");
+      try {
+          // 1. PREPARAMOS LOS DATOS DEL PEDIDO (Igual que en efectivo)
+          const orderData = {
+            userId: user.uid,
+            userName: userData.displayName || user.displayName || 'Cliente',
+            items: $cartItems,
+            total: total, 
+            subtotal: subtotal, 
+            commission: commission, 
+            type: orderType, 
+            detail: orderType === 'mesa' ? `Mesa ${tableNumber}` : selectedAddress || 'Para Llevar',
+            paymentMethod: 'mercadopago',
+            bankDetails: 'Procesando pago digital...', 
+            status: 'pendiente_pago', // <--- OJO: Se guarda como pendiente de pago
+            createdAt: new Date().toISOString() 
+          };
+
+          let orderIdToUse = currentOrderId;
+
+          // 2. SI NO HEMOS CREADO EL PEDIDO AÚN EN ESTA SESIÓN, LO CREAMOS EN FIREBASE
+          if (!currentOrderId) {
+             const docRef = await addDoc(collection(db, "orders"), orderData);
+             orderIdToUse = docRef.id;
+             setCurrentOrderId(docRef.id);
+             console.log("📝 Pedido guardado en Firebase con ID:", docRef.id);
+          } else {
+             // Si ya existe (por si recargó el botón), actualizamos el total por si cambió algo
+             await updateDoc(doc(db, "orders", currentOrderId), orderData);
+          }
+
+          // 3. PREPARAMOS LOS ITEMS PARA MERCADO PAGO
+          const items = $cartItems.map(item => ({
+              title: item.name,
+              quantity: item.quantity,
+              unit_price: Number(item.price),
+              currency_id: 'MXN'
+          }));
+
+          if (commission > 0) {
+              items.push({
+                  title: "Comisión uso de Plataforma",
+                  quantity: 1,
+                  unit_price: Number(commission),
+                  currency_id: 'MXN'
+              });
+          }
+
+          // 4. PEDIMOS EL BOTÓN AL BACKEND, ENVIANDO EL ID DE FIREBASE
+          const response = await fetch('/api/create_preference', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ 
+                  items: items,
+                  external_reference: orderIdToUse // <--- ¡AQUÍ ESTÁ LA MAGIA!
+              })
+          });
+
+          const data = await response.json();
+          if (data.id) {
+              setPreferenceId(data.id);
+          }
+      } catch (error) {
+          console.error("Error MP:", error);
+          showToast("Error al generar pago", "error");
+      }
   };
 
-  const handleUploadProof = async () => {
-      if (!transferFile) return null;
-      const fd = new FormData();
-      fd.append('file', transferFile);
-      fd.append('upload_preset', UPLOAD_PRESET);
-      const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`, { method: 'POST', body: fd });
-      const data = await res.json();
-      return data.secure_url;
-  };
+  useEffect(() => {
+      // Solo generamos el botón si el usuario ya seleccionó MP
+      if (paymentMethod === 'mercadopago' && $cartItems.length > 0) {
+          createPreference();
+      } else {
+          setPreferenceId(null);
+          setCurrentOrderId(null); // Reseteamos si cambia de método
+      }
+  }, [paymentMethod, $cartItems.length, commission]); 
 
-  const handleCheckout = async () => {
+
+  // ... Resto de funciones (copyToClipboard, handleUploadProof) iguales ...
+  const copyToClipboard = () => { if(selectedBankInfo) { navigator.clipboard.writeText(selectedBankInfo.number.replace(/\s/g, '')); showToast("Copiado", "success"); }};
+  const handleUploadProof = async () => { if (!transferFile) return null; const fd = new FormData(); fd.append('file', transferFile); fd.append('upload_preset', UPLOAD_PRESET); const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`, { method: 'POST', body: fd }); const data = await res.json(); return data.secure_url; };
+
+  const handleManualCheckout = async () => {
     if (!user) return showToast("Inicia sesión", 'error');
     if ($cartItems.length === 0) return showToast("Carrito vacío", 'error');
     if (orderType === 'mesa' && !tableNumber) return showToast("Selecciona mesa", 'error');
     if (orderType === 'domicilio' && !selectedAddress) return showToast("Selecciona dirección", 'error');
-    
-    if (paymentMethod === 'transferencia') {
-        if (!selectedBankInfo) return showToast("Selecciona una cuenta", 'error');
-        if (!transferFile) return showToast("Sube el comprobante", 'error');
-    }
-
-    if (paymentMethod === 'tarjeta' && !selectedUserCard) {
-        return showToast("Selecciona una tarjeta o agrega una", 'error');
-    }
+    if (paymentMethod === 'transferencia' && (!selectedBankInfo || !transferFile)) return showToast("Faltan datos de pago", 'error');
 
     setLoading(true);
     try {
       let proofUrl = '';
+      let paymentDetail = 'Pago en Efectivo';
+
       if (paymentMethod === 'transferencia') {
           setUploading(true);
           proofUrl = await handleUploadProof();
           setUploading(false);
-      }
-
-      // --- LOGICA DE DETALLE DE PAGO ---
-      let paymentDetail = null;
-
-      if (paymentMethod === 'transferencia') {
-          // Cliente eligió manualmente la cuenta
-          paymentDetail = `${selectedBankInfo.bank} (${selectedBankInfo.name})`;
-      } 
-      
-      if (paymentMethod === 'tarjeta') {
-          // Buscamos la cuenta del Admin marcada con estrella
-          let adminAccountName = "Cuenta General";
-          if (cardDepositId && accounts.length > 0) {
-              const adminAcc = accounts.find(a => a.id === cardDepositId);
-              if (adminAcc) adminAccountName = `${adminAcc.bank} (Admin)`;
-          }
-
-          // Formato: De [Tarjeta Cliente] -> A [Cuenta Admin]
-          paymentDetail = `De: ${selectedUserCard.bank} ••${selectedUserCard.last4} ➡ A: ${adminAccountName}`;
+          paymentDetail = `Transferencia a: ${selectedBankInfo.bank}`;
       }
 
       const orderData = {
         userId: user.uid,
-        userEmail: user.email,
         userName: userData.displayName || user.displayName || 'Cliente',
         items: $cartItems,
-        total: total,
+        total: total, 
+        subtotal: subtotal, 
+        commission: commission, 
         type: orderType, 
         detail: orderType === 'mesa' ? `Mesa ${tableNumber}` : selectedAddress,
         paymentMethod: paymentMethod,
-        bankDetails: paymentDetail, // Guardamos el detalle completo
+        bankDetails: paymentDetail,
         proofOfPayment: proofUrl,
-        status: 'pendiente',
-        date: new Date(),
+        status: 'pendiente', // Pedidos manuales entran directo como pendientes
         createdAt: new Date().toISOString() 
       };
 
@@ -148,13 +199,8 @@ export default function Cart() {
       showToast(`¡Pedido Enviado!`, 'success');
       clearCart();
       isCartOpen.set(false);
-      
       setPaymentMethod('efectivo'); 
-      setTransferStep(1); 
-      setTransferFile(null); 
-      setSelectedBankInfo(null);
-      setSelectedUserCard(null);
-
+      setTransferStep(1); setTransferFile(null); setSelectedBankInfo(null);
     } catch (error) { showToast("Error al enviar", 'error'); setLoading(false); setUploading(false); }
     setLoading(false);
   };
@@ -163,7 +209,6 @@ export default function Cart() {
       setPaymentMethod(method);
       setTransferStep(1);
       setSelectedBankInfo(null);
-      setSelectedUserCard(null);
   };
 
   if (!$isCartOpen) return null;
@@ -172,170 +217,114 @@ export default function Cart() {
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-black bg-opacity-50" onClick={() => isCartOpen.set(false)}></div>
       
-      <div className="relative w-full max-w-md bg-white dark:bg-gray-900 h-full shadow-2xl flex flex-col border-l dark:border-gray-800 transition-colors">
+      <div className="relative w-full max-w-md bg-white dark:bg-gray-900 h-full shadow-2xl flex flex-col border-l dark:border-gray-800">
         
-        <div className="flex justify-between items-center p-6 border-b dark:border-gray-800 bg-white dark:bg-gray-900 z-10 shrink-0">
+        <div className="flex justify-between items-center p-6 border-b dark:border-gray-800 bg-white dark:bg-gray-900 shrink-0">
           <h2 className="text-2xl font-bold text-gray-800 dark:text-white">Tu Pedido</h2>
-          <button onClick={() => isCartOpen.set(false)} className="text-gray-500 dark:text-gray-400 hover:text-red-500 font-bold text-xl">✕</button>
+          <button onClick={() => isCartOpen.set(false)} className="text-gray-500 hover:text-red-500 font-bold text-xl">✕</button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-6">
-          <div className="mb-8 space-y-4">
-            {$cartItems.map((item) => (
-                <div key={item.id} className="flex gap-4 pb-4 border-b dark:border-gray-800 last:border-0">
-                <img src={item.image} className="w-16 h-16 rounded object-cover bg-gray-100" />
-                <div className="flex-1">
-                    <h4 className="font-bold dark:text-white leading-tight">{item.name}</h4>
-                    <p className="text-orange-600 font-bold">${item.price}</p>
-                    <div className="flex items-center gap-3 mt-2">
-                    <div className="flex items-center bg-gray-100 dark:bg-gray-800 rounded-lg">
-                        <button onClick={() => updateQuantity(item.id, item.quantity - 1)} className="w-8 h-8 flex items-center justify-center font-bold text-gray-600 dark:text-white hover:bg-gray-200 dark:hover:bg-gray-700 rounded-l-lg">-</button>
-                        <span className="w-8 text-center text-sm font-bold dark:text-white">{item.quantity}</span>
-                        <button onClick={() => updateQuantity(item.id, item.quantity + 1)} className="w-8 h-8 flex items-center justify-center font-bold text-gray-600 dark:text-white hover:bg-gray-200 dark:hover:bg-gray-700 rounded-r-lg">+</button>
+          <div className="mb-4 space-y-4">
+            {$cartItems.length === 0 ? <p className="text-gray-500 text-center">Vacío</p> : $cartItems.map((item) => (
+                <div key={item.id} className="flex gap-4 pb-4 border-b dark:border-gray-800">
+                    <img src={item.image} className="w-16 h-16 rounded object-cover bg-gray-100" />
+                    <div className="flex-1">
+                        <h4 className="font-bold dark:text-white">{item.name}</h4>
+                        <p className="text-orange-600 font-bold">${item.price}</p>
+                        <div className="flex items-center gap-3 mt-2">
+                             <button onClick={() => updateQuantity(item.id, item.quantity - 1)} className="px-2 bg-gray-200 rounded">-</button>
+                             <span className="font-bold dark:text-white">{item.quantity}</span>
+                             <button onClick={() => updateQuantity(item.id, item.quantity + 1)} className="px-2 bg-gray-200 rounded">+</button>
+                             <button onClick={() => removeFromCart(item.id)} className="text-red-500 text-xs ml-auto">Quitar</button>
+                        </div>
                     </div>
-                    <button onClick={() => removeFromCart(item.id)} className="text-red-500 text-xs hover:underline ml-auto">Quitar</button>
-                    </div>
-                </div>
                 </div>
             ))}
           </div>
 
           {$cartItems.length > 0 && (
+              <div className="mb-8">
+                  <button onClick={() => isCartOpen.set(false)} className="w-full py-2 border-2 border-dashed border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 font-bold rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition flex items-center justify-center gap-2">
+                      <FaShoppingBag /> Agregar más productos
+                  </button>
+              </div>
+          )}
+
+          {$cartItems.length > 0 && (
             <div className="space-y-6">
                 <div>
-                <label className="block font-bold mb-2 dark:text-white">¿Cómo lo quieres?</label>
-                <select value={orderType} onChange={(e) => setOrderType(e.target.value)} className="w-full p-3 border rounded-lg bg-gray-50 dark:bg-gray-800 dark:text-white dark:border-gray-700 outline-none">
-                    <option value="mesa">🍽️ Comer en Mesa</option>
-                    <option value="llevar">🥡 Para Llevar</option>
-                    <option value="domicilio">🛵 A Domicilio</option>
-                </select>
-                </div>
-
-                {orderType === 'mesa' && (
-                <div>
-                    <label className="block text-sm font-bold text-gray-600 dark:text-gray-400 mb-1">Mesa</label>
-                    <select className="w-full p-3 border rounded-lg dark:bg-gray-800 dark:text-white dark:border-gray-700" value={tableNumber} onChange={(e) => setTableNumber(e.target.value)}>
-                        <option value="">-- Selecciona --</option>
-                        {availableTables.map(num => <option key={num} value={num}>Mesa {num}</option>)}
+                    <label className="block font-bold mb-2 dark:text-white">¿Cómo lo quieres?</label>
+                    <select value={orderType} onChange={(e) => setOrderType(e.target.value)} className="w-full p-3 border rounded bg-white dark:bg-gray-800 dark:text-white">
+                        <option value="mesa">🍽️ Comer en Mesa</option>
+                        <option value="llevar">🥡 Para Llevar</option>
+                        <option value="domicilio">🛵 A Domicilio</option>
                     </select>
                 </div>
+                
+                {orderType === 'mesa' && (
+                    <select className="w-full p-3 border rounded dark:bg-gray-800 dark:text-white" value={tableNumber} onChange={e=>setTableNumber(e.target.value)}><option value="">Mesa...</option>{availableTables.map(n=><option key={n} value={n}>{n}</option>)}</select>
                 )}
-
                 {orderType === 'domicilio' && (
-                <div>
-                    <label className="block text-sm font-bold text-gray-600 dark:text-gray-400 mb-1">Dirección</label>
-                    {userData.savedAddresses && userData.savedAddresses.length > 0 ? (
-                        <select className="w-full p-3 border rounded-lg dark:bg-gray-800 dark:text-white dark:border-gray-700" value={selectedAddress} onChange={(e) => setSelectedAddress(e.target.value)}>
-                            <option value="">-- Selecciona --</option>
-                            {userData.savedAddresses.map(addr => <option key={addr.id} value={addr.text}>{addr.alias} - {addr.text.substring(0, 20)}...</option>)}
-                        </select>
-                    ) : <p className="text-red-500 text-xs">No tienes direcciones.</p>}
-                    <a href="/profile" className="text-blue-600 text-xs hover:underline block mt-2 font-bold">+ Agregar dirección</a>
-                </div>
+                     userData.savedAddresses?.length > 0 
+                     ? <select className="w-full p-3 border rounded dark:bg-gray-800 dark:text-white" value={selectedAddress} onChange={e=>setSelectedAddress(e.target.value)}><option value="">Dirección...</option>{userData.savedAddresses.map(a=><option key={a.id} value={a.text}>{a.alias}</option>)}</select>
+                     : <p className="text-red-500 text-xs">Agrega dirección en perfil</p>
                 )}
 
                 <div>
-                <label className="block font-bold mb-2 dark:text-white">Método de Pago</label>
-                <div className="grid grid-cols-3 gap-2">
-                    {['efectivo', 'tarjeta', 'transferencia'].map((method) => (
-                    <button key={method} onClick={() => handlePaymentChange(method)} className={`py-2 text-xs md:text-sm rounded-lg border capitalize font-bold transition-all ${paymentMethod === method ? 'bg-orange-100 border-orange-500 text-orange-700 dark:bg-orange-900 dark:text-orange-300 dark:border-orange-700' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 dark:border-gray-700'}`}>{method}</button>
-                    ))}
-                </div>
+                    <label className="block font-bold mb-2 dark:text-white">Método de Pago</label>
+                    <div className="grid grid-cols-3 gap-2">
+                        <button onClick={() => handlePaymentChange('efectivo')} className={`p-2 rounded border font-bold text-xs ${paymentMethod === 'efectivo' ? 'bg-orange-100 border-orange-500 text-orange-700' : 'bg-white dark:bg-gray-800 dark:text-white'}`}>💵 Efectivo</button>
+                        <button onClick={() => handlePaymentChange('transferencia')} className={`p-2 rounded border font-bold text-xs ${paymentMethod === 'transferencia' ? 'bg-orange-100 border-orange-500 text-orange-700' : 'bg-white dark:bg-gray-800 dark:text-white'}`}>📲 Transferir</button>
+                        <button onClick={() => handlePaymentChange('mercadopago')} className={`p-2 rounded border font-bold text-xs ${paymentMethod === 'mercadopago' ? 'bg-blue-100 border-blue-500 text-blue-700' : 'bg-white dark:bg-gray-800 dark:text-white'}`}>💳 Tarjetas</button>
+                    </div>
                 </div>
 
-                {paymentMethod === 'tarjeta' && (
-                    <div className="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-xl border dark:border-gray-700 animate-fade-in-down">
-                        <p className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-3">Selecciona tu tarjeta:</p>
-                        
-                        {userData.savedCards && userData.savedCards.length > 0 ? (
-                            <div className="space-y-2">
-                                {userData.savedCards.map(card => (
-                                    <div 
-                                        key={card.id} 
-                                        onClick={() => setSelectedUserCard(card)}
-                                        className={`p-3 rounded-lg cursor-pointer border-2 flex items-center justify-between transition-all ${selectedUserCard?.id === card.id ? 'border-orange-500 bg-orange-50 dark:bg-orange-900/20' : 'border-transparent bg-white dark:bg-gray-800 hover:border-gray-300'}`}
-                                    >
-                                        <div className="flex items-center gap-3">
-                                            <div className={`w-10 h-7 rounded flex items-center justify-center text-white text-xs font-bold ${getBankStyle(card.bank)}`}>
-                                                <FaCreditCard/>
-                                            </div>
-                                            <div>
-                                                <p className="font-bold text-sm text-gray-800 dark:text-white">{card.alias}</p>
-                                                <p className="text-xs text-gray-500">•••• {card.last4}</p>
-                                            </div>
-                                        </div>
-                                        {selectedUserCard?.id === card.id && <FaCheck className="text-orange-600"/>}
-                                    </div>
-                                ))}
-                            </div>
-                        ) : (
-                            <div className="text-center py-4">
-                                <p className="text-gray-500 text-xs mb-2">No tienes tarjetas guardadas.</p>
-                            </div>
-                        )}
-                        
-                        <a href="/wallet" className="block w-full text-center mt-3 py-2 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg text-gray-500 text-sm font-bold hover:bg-gray-100 dark:hover:bg-gray-700 transition">
-                            + Agregar / Gestionar Tarjetas
-                        </a>
+                <div className="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-lg border dark:border-gray-700 space-y-2">
+                    <div className="flex justify-between text-sm text-gray-600 dark:text-gray-400">
+                        <span>Subtotal productos:</span>
+                        <span>${subtotal}</span>
+                    </div>
+                    {paymentMethod === 'mercadopago' && (
+                        <div className="flex justify-between text-sm text-blue-600 dark:text-blue-400 font-bold">
+                            <span>Comisión Servicio:</span>
+                            <span>+${commission}</span>
+                        </div>
+                    )}
+                    <div className="flex justify-between text-xl font-extrabold text-gray-800 dark:text-white border-t dark:border-gray-700 pt-2 mt-2">
+                        <span>Total a Pagar:</span>
+                        <span className={paymentMethod === 'mercadopago' ? 'text-blue-600' : 'text-green-600'}>${total}</span>
+                    </div>
+                    {paymentMethod === 'mercadopago' && <p className="text-[10px] text-gray-400 text-center leading-tight">Incluye tarifa de procesamiento de pagos digitales.</p>}
+                </div>
+
+                {paymentMethod === 'mercadopago' && (
+                    <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 text-center">
+                        <p className="text-xs text-blue-800 mb-2 font-bold">⚠️ Al presionar abajo, tu pedido se guardará temporalmente.</p>
+                        {preferenceId ? (
+                            <Wallet initialization={{ preferenceId }} customization={{ texts: { valueProp: 'smart_option' } }} />
+                        ) : <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>}
                     </div>
                 )}
 
                 {paymentMethod === 'transferencia' && (
-                    <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-xl border border-blue-100 dark:border-blue-800 animate-fade-in-down">
-                        {transferStep === 1 && !selectedBankInfo && (
-                            <>
-                                <p className="text-sm font-bold text-blue-800 dark:text-blue-300 mb-2">Cuenta destino:</p>
-                                <div className="space-y-2">
-                                    {accounts.map(acc => (
-                                        <div key={acc.id} onClick={() => setSelectedBankInfo(acc)} className={`p-3 rounded-lg cursor-pointer hover:scale-[1.02] shadow-sm transition text-white relative overflow-hidden ${getBankStyle(acc.bank)}`}>
-                                            <div className="flex items-center gap-2 relative z-10"><FaCreditCard/><span className="font-bold text-sm">{acc.bank}</span></div>
-                                            <p className="font-mono text-sm tracking-widest mt-1 relative z-10 truncate">{acc.number}</p>
-                                        </div>
-                                    ))}
-                                </div>
-                            </>
-                        )}
-                        {transferStep === 1 && selectedBankInfo && (
-                            <>
-                                <button onClick={() => setSelectedBankInfo(null)} className="text-xs text-blue-600 dark:text-blue-400 mb-2 flex items-center gap-1 hover:underline"><FaArrowLeft/> Cambiar cuenta</button>
-                                <div className={`p-4 rounded-xl shadow-md relative overflow-hidden mb-3 text-white ${getBankStyle(selectedBankInfo.bank)}`}>
-                                    <div className="flex items-center gap-2 relative z-10"><FaCreditCard/><span className="font-bold text-lg">{selectedBankInfo.bank}</span></div>
-                                    <div className="mt-3 relative z-10">
-                                        <div className="flex justify-between items-center gap-2">
-                                            <p className="font-mono text-lg tracking-widest mb-1 break-all leading-tight">{selectedBankInfo.number}</p>
-                                            <button onClick={copyToClipboard} className="bg-white/20 hover:bg-white/40 p-2 rounded-full"><FaCopy/></button>
-                                        </div>
-                                        <p className="text-xs uppercase opacity-90 font-bold">{selectedBankInfo.name}</p>
-                                    </div>
-                                </div>
-                                <button onClick={() => setTransferStep(2)} className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold text-sm hover:bg-blue-700 flex items-center justify-center gap-2">Ya transferí, subir foto <FaArrowRight/></button>
-                            </>
-                        )}
-                        {transferStep === 2 && selectedBankInfo && (
-                            <>
-                                <button onClick={() => setTransferStep(1)} className="text-xs text-blue-600 dark:text-blue-400 mb-2 flex items-center gap-1 hover:underline"><FaArrowLeft/> Ver datos</button>
-                                <label className="w-full h-32 border-2 border-dashed border-blue-300 dark:border-blue-700 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors bg-white dark:bg-gray-800">
-                                    {transferFile ? <div className="text-center"><FaCheck className="text-green-500 text-3xl mx-auto mb-1"/><span className="text-green-600 font-bold text-xs">Listo</span></div> : <><FaUpload className="text-blue-400 text-2xl mb-2"/><span className="text-blue-600 dark:text-blue-400 font-bold text-xs">Subir Comprobante</span></>}
-                                    <input type="file" accept="image/*" onChange={(e) => setTransferFile(e.target.files[0])} className="hidden" />
-                                </label>
-                            </>
-                        )}
+                    <div className="bg-gray-100 dark:bg-gray-800 p-4 rounded">
+                         {!selectedBankInfo ? (
+                             accounts.map(acc => <div key={acc.id} onClick={() => setSelectedBankInfo(acc)} className={`p-2 mb-2 rounded cursor-pointer text-white ${getBankStyle(acc.bank)}`}>{acc.bank} - {acc.number}</div>)
+                         ) : (
+                             <div>
+                                 <p className="font-bold text-white p-2 rounded mb-2 bg-gray-800">{selectedBankInfo.bank}: {selectedBankInfo.number}</p>
+                                 <input type="file" onChange={e => setTransferFile(e.target.files[0])} className="text-xs" />
+                             </div>
+                         )}
                     </div>
                 )}
 
-                <div className="border-t dark:border-gray-800 pt-6">
-                    <div className="flex justify-between items-center mb-4">
-                        <span className="text-gray-500 dark:text-gray-400 text-sm font-bold uppercase">Total</span>
-                        <span className="text-3xl font-extrabold text-green-600 dark:text-green-400">${total}</span>
-                    </div>
-                    <button 
-                        onClick={handleCheckout} 
-                        disabled={loading || uploading}
-                        className="w-full bg-green-600 text-white py-4 rounded-xl font-bold text-lg hover:bg-green-700 disabled:bg-gray-400 dark:disabled:bg-gray-700 transition-all shadow-lg active:scale-95 flex justify-center items-center gap-2"
-                    >
-                        {loading || uploading ? <span className="animate-pulse">Procesando...</span> : 'Confirmar Pedido'}
+                {paymentMethod !== 'mercadopago' && (
+                    <button onClick={handleManualCheckout} disabled={loading} className="w-full bg-green-600 text-white py-4 rounded-xl font-bold text-lg hover:bg-green-700 shadow-lg">
+                        {loading ? '...' : `Confirmar Pedido ($${total})`}
                     </button>
-                </div>
+                )}
             </div>
           )}
         </div>

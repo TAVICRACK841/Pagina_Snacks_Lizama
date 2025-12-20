@@ -1,20 +1,21 @@
 import { useState, useEffect } from 'react';
 import { db } from '../firebase/config';
-import { collection, addDoc, getDocs, doc, updateDoc, setDoc, onSnapshot, deleteDoc } from 'firebase/firestore';
+import { collection, addDoc, getDocs, doc, updateDoc, setDoc, onSnapshot, deleteDoc, query, where, orderBy } from 'firebase/firestore';
 import { jsPDF } from "jspdf";
 import autoTable from 'jspdf-autotable';
 import { showToast } from '../stores/toastStore';
-import { FaTrash, FaCreditCard, FaEye, FaFilePdf, FaCalendarAlt, FaCheckCircle, FaStar } from 'react-icons/fa';
+import { FaTrash, FaCreditCard, FaEye, FaFilePdf, FaCalendarAlt, FaCheckCircle, FaStar, FaUtensils, FaClock } from 'react-icons/fa';
 import { getBankStyle, BANK_OPTIONS } from '../utils/bankStyles';
 
 export default function AdminDashboard() {
+  // ✅ CAMBIO AQUÍ: Ahora inicia en 'menu' por defecto
   const [activeTab, setActiveTab] = useState('menu');
+  
   const [loading, setLoading] = useState(false);
   const [isStoreOpen, setIsStoreOpen] = useState(true);
   
   const [tableCount, setTableCount] = useState(15); 
   const [accounts, setAccounts] = useState([]);
-  // NUEVO ESTADO: ID de la cuenta donde cae el dinero de tarjetas
   const [cardDepositId, setCardDepositId] = useState(null); 
   
   const [newAccount, setNewAccount] = useState({ bank: 'BBVA', name: '', number: '' });
@@ -25,7 +26,8 @@ export default function AdminDashboard() {
   const [newProduct, setNewProduct] = useState({ name: '', price: '', category: 'hamburguesas', description: '', inStock: true });
   const [imageFile, setImageFile] = useState(null);
   const [users, setUsers] = useState([]);
-  const [orders, setOrders] = useState([]);
+  const [orders, setOrders] = useState([]); 
+  const [liveOrders, setLiveOrders] = useState([]); 
   const [products, setProducts] = useState([]); 
   const [selectedProof, setSelectedProof] = useState(null);
 
@@ -36,11 +38,20 @@ export default function AdminDashboard() {
           setIsStoreOpen(data.isOpen);
           if (data.tableCount) setTableCount(data.tableCount);
           if (data.accounts && Array.isArray(data.accounts)) setAccounts(data.accounts);
-          // CARGAR LA CUENTA PREDETERMINADA
           if (data.cardDepositId) setCardDepositId(data.cardDepositId);
       }
     });
     return () => unsub();
+  }, []);
+
+  useEffect(() => {
+      const q = query(collection(db, "orders"), where("status", "in", ["pendiente", "preparando", "en_camino"]));
+      const unsub = onSnapshot(q, (snapshot) => {
+          const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+          data.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+          setLiveOrders(data);
+      });
+      return () => unsub();
   }, []);
 
   const toggleStore = async () => {
@@ -57,136 +68,70 @@ export default function AdminDashboard() {
         await setDoc(doc(db, "store_config", "main"), { 
             tableCount: Number(tableCount),
             accounts: accounts,
-            cardDepositId: cardDepositId // GUARDAMOS LA SELECCIÓN
+            cardDepositId: cardDepositId 
         }, { merge: true });
         showToast("Configuración guardada", 'success');
       } catch (error) { showToast("Error al guardar", 'error'); }
       setLoading(false);
   };
 
-  const handleCardInput = (e) => {
-      let val = e.target.value.replace(/\D/g, '');
-      if (val.length > 18) val = val.slice(0, 18);
-      val = val.replace(/(\d{4})(?=\d)/g, '$1 ');
-      setNewAccount({ ...newAccount, number: val });
-  };
-  const handleAddAccount = (e) => {
-      e.preventDefault();
-      if(!newAccount.name || !newAccount.number) return showToast("Faltan datos", "error");
-      setAccounts([...accounts, { ...newAccount, id: Date.now() }]);
-      setNewAccount({ bank: 'BBVA', name: '', number: '' });
-      showToast("Cuenta agregada", "info");
-  };
-  
-  const handleDeleteAccount = (id) => {
-      setAccounts(accounts.filter(acc => acc.id !== id));
-      if (cardDepositId === id) setCardDepositId(null); // Si borras la default, reseteamos
-  };
+  const handleCardInput = (e) => { let val = e.target.value.replace(/\D/g, ''); if (val.length > 18) val = val.slice(0, 18); val = val.replace(/(\d{4})(?=\d)/g, '$1 '); setNewAccount({ ...newAccount, number: val }); };
+  const handleAddAccount = (e) => { e.preventDefault(); if(!newAccount.name || !newAccount.number) return showToast("Faltan datos", "error"); setAccounts([...accounts, { ...newAccount, id: Date.now() }]); setNewAccount({ bank: 'BBVA', name: '', number: '' }); showToast("Cuenta agregada", "info"); };
+  const handleDeleteAccount = (id) => { setAccounts(accounts.filter(acc => acc.id !== id)); if (cardDepositId === id) setCardDepositId(null); };
 
   useEffect(() => {
     if (activeTab === 'menu') fetchProducts();
     if (activeTab === 'roles') fetchUsers();
-    if (activeTab === 'finanzas') fetchOrders();
+    if (activeTab === 'finanzas') fetchOrders(); 
   }, [activeTab]);
 
-  const fetchProducts = async () => {
-    const s = await getDocs(collection(db, "products"));
-    const data = s.docs.map(d => ({ id: d.id, ...d.data() }));
-    data.sort((a, b) => a.name.localeCompare(b.name));
-    setProducts(data);
-  };
+  const fetchProducts = async () => { const s = await getDocs(collection(db, "products")); const data = s.docs.map(d => ({ id: d.id, ...d.data() })); data.sort((a, b) => a.name.localeCompare(b.name)); setProducts(data); };
   const fetchUsers = async () => { const s = await getDocs(collection(db, "users")); setUsers(s.docs.map(d => ({ id: d.id, ...d.data() }))); };
   
   const fetchOrders = async () => {
     const s = await getDocs(collection(db, "orders"));
     const data = s.docs.map(d => ({ id: d.id, ...d.data() }));
     const finishedOrders = data.filter(o => ['completado', 'entregado', 'cancelado'].includes(o.status));
-    finishedOrders.sort((a, b) => {
-        const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt);
-        const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt);
-        return dateB - dateA;
-    });
+    finishedOrders.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     setOrders(finishedOrders);
   };
 
-  const groupedOrders = orders.reduce((groups, order) => {
-      const dateObj = order.createdAt?.toDate ? order.createdAt.toDate() : new Date(order.createdAt);
-      const dateStr = dateObj.toLocaleDateString();
-      if (!groups[dateStr]) groups[dateStr] = [];
-      groups[dateStr].push(order);
-      return groups;
-  }, {});
+  const handleOrderStatus = async (orderId, newStatus) => {
+      try {
+          await updateDoc(doc(db, "orders", orderId), { status: newStatus });
+          showToast(`Pedido ${newStatus}`, 'success');
+      } catch (e) { showToast("Error al actualizar", 'error'); }
+  };
 
-  const sortedDates = Object.keys(groupedOrders).sort((a, b) => {
-      const [dA, mA, yA] = a.split('/');
-      const [dB, mB, yB] = b.split('/');
-      return new Date(yB, mB - 1, dB) - new Date(yA, mA - 1, dA);
-  });
+  const handleDeleteReport = async (ordersList, dateLabel) => {
+    if (!window.confirm(`⚠️ PELIGRO: ¿Estás seguro de eliminar TODO el historial de ventas del día ${dateLabel}?\n\nSe borrarán ${ordersList.length} pedidos permanentemente de la base de datos.`)) return;
 
-  const downloadReport = (ordersList, dateLabel) => {
+    setLoading(true);
     try {
-      const doc = new jsPDF();
-      
-      doc.setFillColor(234, 88, 12); 
-      doc.rect(0, 0, 210, 20, 'F'); 
-      doc.setTextColor(255, 255, 255);
-      doc.setFontSize(16);
-      doc.text("SNACKS LIZAMA - Reporte de Ventas", 14, 13);
-      
-      doc.setTextColor(0, 0, 0);
-      doc.setFontSize(12);
-      doc.text(`Fecha del Reporte: ${dateLabel}`, 14, 30);
-      
-      const tableRows = ordersList.map(order => [
-        order.createdAt?.toDate ? order.createdAt.toDate().toLocaleTimeString() : new Date(order.createdAt).toLocaleTimeString(),
-        order.userName || 'Cliente', 
-        order.type.toUpperCase(), 
-        `${order.paymentMethod.toUpperCase()} ${order.bankDetails ? `(${order.bankDetails})` : ''}`,
-        `$${order.total}`, 
-        order.status.toUpperCase()
-      ]);
+        const deletePromises = ordersList.map(order => deleteDoc(doc(db, "orders", order.id)));
+        await Promise.all(deletePromises);
+        showToast("Registros eliminados correctamente", 'success');
+        fetchOrders(); 
+    } catch (error) {
+        console.error(error);
+        showToast("Error al eliminar los registros", 'error');
+    }
+    setLoading(false);
+  };
 
-      autoTable(doc, { 
-          head: [['HORA', 'CLIENTE', 'TIPO', 'PAGO / DETALLE', 'TOTAL', 'ESTADO']], 
-          body: tableRows, 
-          startY: 35,
-          theme: 'striped',
-          headStyles: { fillColor: [31, 41, 55] }, 
-          styles: { fontSize: 8 }, 
-          alternateRowStyles: { fillColor: [243, 244, 246] }
-      });
-
-      const totalSales = ordersList.reduce((acc, curr) => curr.status !== 'cancelado' ? acc + curr.total : acc, 0);
-      const finalY = (doc.lastAutoTable && doc.lastAutoTable.finalY) || 150;
-      
-      doc.setFillColor(220, 252, 231); 
-      doc.rect(140, finalY + 5, 50, 10, 'F');
-      doc.setFontSize(12);
-      doc.setTextColor(22, 163, 74); 
-      doc.text(`VENTA TOTAL: $${totalSales}`, 142, finalY + 12);
-      
-      doc.save(`reporte_${dateLabel.replace(/\//g, '-')}.pdf`);
-      showToast("PDF descargado", 'success');
+  const groupedOrders = orders.reduce((groups, order) => { const dateStr = new Date(order.createdAt).toLocaleDateString(); if (!groups[dateStr]) groups[dateStr] = []; groups[dateStr].push(order); return groups; }, {});
+  const sortedDates = Object.keys(groupedOrders).sort((a, b) => { const [dA, mA, yA] = a.split('/'); const [dB, mB, yB] = b.split('/'); return new Date(yB, mB - 1, dB) - new Date(yA, mA - 1, dA); });
+  const downloadReport = (ordersList, dateLabel) => {
+    try { const doc = new jsPDF(); doc.setFillColor(234, 88, 12); doc.rect(0, 0, 210, 20, 'F'); doc.setTextColor(255, 255, 255); doc.setFontSize(16); doc.text("SNACKS LIZAMA - Reporte de Ventas", 14, 13); doc.setTextColor(0, 0, 0); doc.setFontSize(12); doc.text(`Fecha del Reporte: ${dateLabel}`, 14, 30);
+      const tableRows = ordersList.map(order => [ new Date(order.createdAt).toLocaleTimeString(), order.userName || 'Cliente', order.type.toUpperCase(), `${order.paymentMethod.toUpperCase()}`, `$${order.total}`, order.status.toUpperCase() ]);
+      autoTable(doc, { head: [['HORA', 'CLIENTE', 'TIPO', 'PAGO', 'TOTAL', 'ESTADO']], body: tableRows, startY: 35, theme: 'striped' });
+      const totalSales = ordersList.reduce((acc, curr) => curr.status !== 'cancelado' ? acc + curr.total : acc, 0); const finalY = (doc.lastAutoTable && doc.lastAutoTable.finalY) || 150; doc.setFillColor(220, 252, 231); doc.rect(140, finalY + 5, 50, 10, 'F'); doc.setFontSize(12); doc.setTextColor(22, 163, 74); doc.text(`VENTA TOTAL: $${totalSales}`, 142, finalY + 12); doc.save(`reporte.pdf`); showToast("PDF descargado", 'success');
     } catch (e) { showToast("Error PDF", 'error'); }
   };
-
-  const handleAddProduct = async (e) => {
-    e.preventDefault(); setLoading(true);
-    try {
-      let imageUrl = '';
-      if (imageFile) {
-          const fd = new FormData(); fd.append("file", imageFile); fd.append("upload_preset", UPLOAD_PRESET);
-          const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`, { method: "POST", body: fd });
-          const data = await res.json(); imageUrl = data.secure_url;
-      }
-      await addDoc(collection(db, "products"), { ...newProduct, price: Number(newProduct.price), image: imageUrl, createdAt: new Date() });
-      showToast("Agregado", 'success'); setNewProduct({ name: '', price: '', category: 'hamburguesas', description: '', inStock: true }); setImageFile(null); fetchProducts();
-    } catch(err) { showToast("Error", 'error'); } setLoading(false);
-  };
+  const handleAddProduct = async (e) => { e.preventDefault(); setLoading(true); try { let imageUrl = ''; if (imageFile) { const fd = new FormData(); fd.append("file", imageFile); fd.append("upload_preset", UPLOAD_PRESET); const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`, { method: "POST", body: fd }); const data = await res.json(); imageUrl = data.secure_url; } await addDoc(collection(db, "products"), { ...newProduct, price: Number(newProduct.price), image: imageUrl, createdAt: new Date() }); showToast("Agregado", 'success'); setNewProduct({ name: '', price: '', category: 'hamburguesas', description: '', inStock: true }); setImageFile(null); fetchProducts(); } catch(err) { showToast("Error", 'error'); } setLoading(false); };
   const toggleProductStock = async (product) => { try { await updateDoc(doc(db, "products", product.id), { inStock: !product.inStock }); showToast("Stock actualizado", 'success'); fetchProducts(); } catch (error) { showToast("Error", 'error'); } };
   const handleDeleteProduct = async (id) => { if(confirm("¿Eliminar?")) { await deleteDoc(doc(db, "products", id)); fetchProducts(); showToast("Eliminado", 'success'); } }
   const handleUpdateRole = async (uid, role) => { if(window.confirm(`¿Cambiar rol?`)) { await updateDoc(doc(db, "users", uid), { role }); fetchUsers(); showToast("Rol actualizado", 'success'); } };
-  
   const ROLES = ['cliente', 'admin', 'hamburguesero', 'productor', 'freidor', 'mesero 1', 'mesero 2', 'repartidor 1', 'repartidor 2'];
 
   return (
@@ -194,19 +139,76 @@ export default function AdminDashboard() {
       
       {selectedProof && ( <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4" onClick={() => setSelectedProof(null)}> <div className="relative max-w-2xl w-full bg-white dark:bg-gray-800 rounded-lg p-2"> <button className="absolute top-2 right-2 bg-red-600 text-white rounded-full w-8 h-8 font-bold" onClick={() => setSelectedProof(null)}>X</button> <img src={selectedProof} className="w-full h-auto rounded" /> </div> </div> )}
 
-      <div className="flex justify-between items-center mb-6 bg-white dark:bg-gray-800 p-4 rounded-lg shadow border border-gray-200 dark:border-gray-700 transition-colors">
+      <div className="flex justify-between items-center mb-6 bg-white dark:bg-gray-800 p-4 rounded-lg shadow border border-gray-200 dark:border-gray-700">
         <h1 className="text-2xl font-bold text-gray-800 dark:text-white">Panel de Administración</h1>
         <div className="flex items-center gap-3">
-          <span className={`font-bold text-sm px-3 py-1 rounded-full ${isStoreOpen ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'}`}>{isStoreOpen ? '🟢 ABIERTO' : '🔴 CERRADO'}</span>
+          <span className={`font-bold text-sm px-3 py-1 rounded-full ${isStoreOpen ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{isStoreOpen ? '🟢 ABIERTO' : '🔴 CERRADO'}</span>
           <button onClick={toggleStore} className={`px-4 py-2 rounded text-white font-bold text-xs shadow ${isStoreOpen ? 'bg-red-500' : 'bg-green-500'}`}>{isStoreOpen ? 'Cerrar Local' : 'Abrir Local'}</button>
         </div>
       </div>
 
       <div className="flex border-b dark:border-gray-700 mb-6 overflow-x-auto bg-white dark:bg-gray-800 rounded-t-lg shadow-sm">
-        {['menu', 'roles', 'finanzas', 'config'].map((tab) => (
-          <button key={tab} onClick={() => setActiveTab(tab)} className={`px-6 py-3 font-bold uppercase text-xs whitespace-nowrap border-b-4 transition-colors ${activeTab === tab ? 'border-orange-600 text-orange-600 bg-orange-50 dark:bg-gray-700 dark:text-orange-400' : 'border-transparent text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>{tab === 'config' ? '⚙️ Config' : tab}</button>
+        {['menu', 'roles', 'pedidos', 'finanzas', 'config'].map((tab) => (
+          <button key={tab} onClick={() => setActiveTab(tab)} className={`px-6 py-3 font-bold uppercase text-xs whitespace-nowrap border-b-4 transition-colors ${activeTab === tab ? 'border-orange-600 text-orange-600 bg-orange-50 dark:bg-gray-700' : 'border-transparent text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
+            {tab === 'pedidos' ? '🔥 Cocina / Activos' : tab === 'config' ? '⚙️ Config' : tab}
+          </button>
         ))}
       </div>
+
+      {activeTab === 'pedidos' && (
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {liveOrders.length === 0 && <p className="text-gray-500 col-span-full text-center py-10">No hay pedidos activos.</p>}
+              
+              {liveOrders.map(order => (
+                  <div key={order.id} className="bg-white dark:bg-gray-800 border-l-4 border-orange-500 rounded-lg shadow-md p-5 relative animate-fade-in-down">
+                      <div className="flex justify-between items-start mb-3">
+                          <div>
+                              <span className="bg-orange-100 text-orange-800 text-xs font-bold px-2 py-1 rounded uppercase">{order.type}</span>
+                              <h3 className="font-bold text-lg dark:text-white mt-1">{order.detail}</h3>
+                              <p className="text-xs text-gray-500">{new Date(order.createdAt).toLocaleTimeString()}</p>
+                          </div>
+                          <span className="text-2xl font-bold text-green-600">${order.total}</span>
+                      </div>
+                      
+                      <div className="border-t border-b dark:border-gray-700 py-3 my-3 space-y-2">
+                          {order.items.map((item, i) => (
+                              <div key={i} className="flex justify-between text-sm dark:text-gray-300">
+                                  <span><span className="font-bold">{item.quantity}x</span> {item.name}</span>
+                                  <span className="text-gray-500">${item.price * item.quantity}</span>
+                              </div>
+                          ))}
+                          {order.commission > 0 && (
+                              <div className="flex justify-between text-sm text-blue-500 font-bold border-t border-dashed pt-1">
+                                  <span>+ Comisión MP</span>
+                                  <span>${order.commission}</span>
+                              </div>
+                          )}
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 mb-4">
+                          <span>Pago: <strong className="uppercase text-gray-700 dark:text-gray-200">{order.paymentMethod}</strong></span>
+                          {order.proofOfPayment && <button onClick={() => setSelectedProof(order.proofOfPayment)} className="text-blue-500 underline flex items-center gap-1"><FaEye/> Ver Comprobante</button>}
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                          {order.status === 'pendiente' && (
+                              <button onClick={() => handleOrderStatus(order.id, 'preparando')} className="col-span-2 bg-blue-600 text-white py-2 rounded font-bold hover:bg-blue-700">👨‍🍳 Empezar a Cocinar</button>
+                          )}
+                          {order.status === 'preparando' && (
+                              <>
+                                <button onClick={() => handleOrderStatus(order.id, 'en_camino')} className="bg-yellow-500 text-white py-2 rounded font-bold hover:bg-yellow-600">🛵 Enviando / Listo</button>
+                                <button onClick={() => handleOrderStatus(order.id, 'completado')} className="bg-green-600 text-white py-2 rounded font-bold hover:bg-green-700">✅ Entregado</button>
+                              </>
+                          )}
+                          {(order.status === 'en_camino') && (
+                              <button onClick={() => handleOrderStatus(order.id, 'completado')} className="col-span-2 bg-green-600 text-white py-2 rounded font-bold hover:bg-green-700">✅ Marcar Entregado</button>
+                          )}
+                          <button onClick={() => handleOrderStatus(order.id, 'cancelado')} className="col-span-2 mt-2 text-red-500 text-xs hover:underline">Cancelar Pedido</button>
+                      </div>
+                  </div>
+              ))}
+          </div>
+      )}
 
       {activeTab === 'menu' && (
         <div className="grid md:grid-cols-3 gap-6">
@@ -247,7 +249,7 @@ export default function AdminDashboard() {
              <tbody>
                {users.map(u => (
                  <tr key={u.id} className="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700">
-                   <td className="p-3"><p className="font-bold text-gray-800 dark:text-white">{u.displayName}</p><p className="text-xs text-gray-500 dark:text-gray-400">{u.email}</p></td>
+                   <td className="p-3"><p className="font-bold text-gray-800 dark:text-white">{u.displayName || 'Sin Nombre'}</p><p className="text-xs text-gray-500 dark:text-gray-400">{u.email}</p></td>
                    <td className="p-3"><span className="bg-gray-100 dark:bg-gray-600 px-2 py-1 rounded text-xs uppercase text-gray-600 dark:text-gray-200">{u.role}</span></td>
                    <td className="p-3"><select onChange={(e) => handleUpdateRole(u.id, e.target.value)} value={u.role || 'cliente'} className="border dark:border-gray-600 p-2 rounded text-sm bg-white dark:bg-gray-700 dark:text-white">{ROLES.map(rol => <option key={rol} value={rol}>{rol.toUpperCase()}</option>)}</select></td>
                  </tr>
@@ -259,7 +261,7 @@ export default function AdminDashboard() {
 
       {activeTab === 'finanzas' && (
         <div className="space-y-8">
-            <h2 className="text-2xl font-bold text-gray-800 dark:text-white mb-4">Reportes por Día</h2>
+            <h2 className="text-2xl font-bold text-gray-800 dark:text-white mb-4">Reportes de Finanzas</h2>
             {sortedDates.length === 0 && <p className="text-gray-500 dark:text-gray-400">No hay ventas registradas.</p>}
             
             {sortedDates.map(date => {
@@ -278,30 +280,32 @@ export default function AdminDashboard() {
                             </div>
                             <div className="flex items-center gap-4">
                                 <div className="text-right"><p className="text-xs text-gray-500 dark:text-gray-400 uppercase">Venta</p><p className="text-2xl font-extrabold text-green-600 dark:text-green-400">${dailyTotal}</p></div>
-                                <button onClick={() => downloadReport(dailyOrders, date)} className="bg-gray-800 dark:bg-gray-700 text-white px-4 py-2 rounded flex items-center gap-2 text-sm font-bold shadow"><FaFilePdf /> PDF</button>
+                                
+                                {/* BOTONES PDF Y ELIMINAR JUNTOS */}
+                                <div className="flex gap-2">
+                                    <button onClick={() => downloadReport(dailyOrders, date)} className="bg-gray-800 dark:bg-gray-700 text-white px-4 py-2 rounded flex items-center gap-2 text-sm font-bold shadow hover:bg-gray-900"><FaFilePdf /> PDF</button>
+                                    <button onClick={() => handleDeleteReport(dailyOrders, date)} className="bg-red-600 text-white px-4 py-2 rounded flex items-center gap-2 text-sm font-bold shadow hover:bg-red-700"><FaTrash /> Eliminar</button>
+                                </div>
+
                             </div>
                         </div>
                         <div className="overflow-x-auto">
                             <table className="w-full text-left border-collapse">
-                                <thead><tr className="bg-gray-50 dark:bg-gray-700/50 text-xs uppercase text-gray-600 dark:text-gray-300"><th className="p-3">Hora</th><th className="p-3">Cliente</th><th className="p-3">Tipo / Detalle</th><th className="p-3">Total</th><th className="p-3">Estado</th><th className="p-3">Acciones</th></tr></thead>
+                                <thead><tr className="bg-gray-50 dark:bg-gray-700/50 text-xs uppercase text-gray-600 dark:text-gray-300"><th className="p-3">Hora</th><th className="p-3">Cliente</th><th className="p-3">Tipo / Detalle</th><th className="p-3">Total</th><th className="p-3">Estado</th></tr></thead>
                                 <tbody className="text-sm">
                                     {dailyOrders.map(order => (
                                         <tr key={order.id} className="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                                            <td className="p-3 text-gray-500 dark:text-gray-400 font-mono">{order.createdAt?.toDate ? order.createdAt.toDate().toLocaleTimeString() : new Date(order.createdAt).toLocaleTimeString()}</td>
-                                            <td className="p-3"><p className="font-bold text-gray-700 dark:text-white">{order.userName || 'Anónimo'}</p><p className="text-xs text-gray-400">{order.userEmail}</p></td>
+                                            <td className="p-3 text-gray-500 dark:text-gray-400 font-mono">{new Date(order.createdAt).toLocaleTimeString()}</td>
+                                            <td className="p-3"><p className="font-bold text-gray-700 dark:text-white">{order.userName || 'Anónimo'}</p></td>
                                             <td className="p-3">
-                                                <p className="capitalize font-bold dark:text-gray-300">{order.type} <span className="text-xs font-normal text-gray-500">({order.paymentMethod})</span></p>
-                                                {order.bankDetails && (
-                                                    <p className="text-xs text-blue-600 dark:text-blue-400 font-bold mt-1">
-                                                        {order.paymentMethod === 'transferencia' ? '➡ A:' : '💳 De:'} {order.bankDetails}
-                                                    </p>
-                                                )}
+                                                <p className="capitalize font-bold dark:text-gray-300">{order.type}</p>
+                                                <p className="text-xs text-gray-500">
+                                                    {order.paymentMethod} 
+                                                    {order.commission > 0 && <span className="text-blue-500 font-bold ml-1">(+Comisión)</span>}
+                                                </p>
                                             </td>
                                             <td className="p-3 font-bold text-green-600 dark:text-green-400">${order.total}</td>
                                             <td className="p-3"><span className={`px-2 py-1 rounded text-xs font-bold text-white ${order.status === 'cancelado' ? 'bg-red-500' : 'bg-green-500'}`}>{order.status}</span></td>
-                                            <td className="p-3 flex gap-2">
-                                                {order.proofOfPayment && <button onClick={() => setSelectedProof(order.proofOfPayment)} className="text-blue-500" title="Ver Comprobante"><FaEye/></button>}
-                                            </td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -325,10 +329,6 @@ export default function AdminDashboard() {
 
               <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md border dark:border-gray-700 relative">
                   <h2 className="text-xl font-bold mb-4 text-gray-800 dark:text-white border-b dark:border-gray-700 pb-2">💳 Cuentas Bancarias</h2>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                    Selecciona con la estrella ⭐ la cuenta donde se depositan los pagos con Tarjeta.
-                  </p>
-                  
                   <form onSubmit={handleAddAccount} className="mb-6 bg-gray-50 dark:bg-gray-700/30 p-4 rounded border dark:border-gray-700">
                       <div className="grid grid-cols-2 gap-3 mb-3">
                           <div>
@@ -369,7 +369,6 @@ export default function AdminDashboard() {
                                       )}
                                   </div>
                                   <div className="flex gap-2">
-                                      {/* BOTÓN ESTRELLA PARA SELECCIONAR DEFAULT */}
                                       <button 
                                           onClick={() => setCardDepositId(acc.id)} 
                                           className={`p-1 hover:scale-125 transition ${cardDepositId === acc.id ? 'text-yellow-300' : 'text-white/50 hover:text-white'}`}

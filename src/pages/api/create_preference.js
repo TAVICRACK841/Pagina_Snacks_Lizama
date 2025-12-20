@@ -1,33 +1,54 @@
-// src/pages/api/create_preference.js
-import { MercadoPagoConfig, Preference } from 'mercadopago';
+// 1. Habilitamos modo servidor
+export const prerender = false;
 
-// ⚠️ PEGA AQUÍ TU "ACCESS TOKEN" DE PRUEBA (Empieza con APP_USR-...)
-const client = new MercadoPagoConfig({ accessToken: 'TU_ACCESS_TOKEN_AQUI' });
+const accessToken = import.meta.env.MP_ACCESS_TOKEN;
 
 export async function POST({ request }) {
   try {
-    const { items } = await request.json();
+    // Recibimos los items Y TAMBIÉN la referencia del pedido (ID de Firebase)
+    const { items, external_reference } = await request.json();
 
-    const preference = new Preference(client);
-    
-    const result = await preference.create({
-      body: {
-        items: items,
-        back_urls: {
-          success: "http://localhost:4321/success", // Donde vuelve si paga bien
-          failure: "http://localhost:4321/failure", // Donde vuelve si falla
-          pending: "http://localhost:4321/pending",
-        },
-        auto_return: "approved",
-      }
+    // TU CONFIGURACIÓN DE RED (Asegúrate que sea tu IP correcta)
+    const myUrl = "http://192.168.1.213:4321";
+
+    const preferenceData = {
+      items: items,
+      // AQUÍ VINCULAMOS EL PAGO CON TU PEDIDO DE FIREBASE
+      external_reference: external_reference, 
+      statement_descriptor: "SNACKS LIZAMA",
+      back_urls: {
+        success: `${myUrl}/orders`,
+        failure: `${myUrl}/menu`,
+        pending: `${myUrl}/menu`
+      },
+      // auto_return: "approved", 
+    };
+
+    console.log("📦 Creando preferencia para pedido:", external_reference);
+
+    const response = await fetch('https://api.mercadopago.com/checkout/preferences', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(preferenceData)
     });
 
-    return new Response(JSON.stringify({ id: result.id }), {
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error("🔴 Error API MP:", data);
+      return new Response(JSON.stringify({ error: "Error MP", details: data }), { status: 500 });
+    }
+
+    return new Response(JSON.stringify({ id: data.id }), {
       status: 200,
       headers: { "Content-Type": "application/json" }
     });
 
   } catch (error) {
+    console.error("🔴 Error Servidor:", error);
     return new Response(JSON.stringify({ error: error.message }), { status: 500 });
   }
 }
