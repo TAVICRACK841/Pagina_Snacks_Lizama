@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { FaCheck, FaTimes, FaPlus, FaMinus, FaHamburger, FaDrumstickBite, FaIceCream, FaUtensils, FaWineBottle, FaBoxOpen } from 'react-icons/fa';
+import { FaCheck, FaTimes, FaPlus, FaMinus, FaHamburger, FaDrumstickBite, FaIceCream, FaUtensils, FaWineBottle, FaBoxOpen, FaGlassWhiskey, FaSnowflake, FaThermometerHalf } from 'react-icons/fa';
 import { showToast } from '../stores/toastStore';
 
 export default function ProductCustomizer({ product, initialValues, onClose, onAddToCart }) {
@@ -12,32 +12,48 @@ export default function ProductCustomizer({ product, initialValues, onClose, onA
   const isPastaProtein = c.includes('pasta con');
   const isHotDog = c.includes('perros') || c.includes('hot dog');
   const isBox = c.includes('box');
-  const isDrink = c.includes('embotellado') || c.includes('aguas');
+  
+  // Categorías de Bebidas
+  const isDrink = c.includes('embotellado') || c.includes('aguas') || c.includes('jugo');
   const isFrappe = c.includes('frappe');
-  const isSimple = ['papas', 'media papas', 'pasta', 'media pasta', 'jugo', 'dedos de queso'].includes(c);
+  const isAguas = c.includes('aguas');
+  const isEmbotellado = c.includes('embotellado');
+
+  // Categorías Simples
+  const isSimple = ['papas', 'media papas', 'pasta', 'media pasta', 'dedos de queso'].includes(c);
+
+  // Categorías que deben mostrar la lista de piezas extras (Alitas/Boneless/Tiras)
+  const showExtraSnacksList = isBurger || isWingsType || isPastaProtein || isBox;
 
   // --- 2. VARIABLES DE PRECIO ---
   const PIECE_PRICE = Number(product.extraPiecePrice || product.pricePerExtraPiece || 0);
   const POT_PRICE = Number(product.extraSaucePotPrice || 0);
-  const SNACK_PRICE = Number(product.extraSnackPrice || 0);
+  // Precio unificado para las piezas extras (Alitas/Boneless/Tiras)
+  const SNACK_PRICE = Number(product.extraSnackPrice || product.pricePerExtraPiece || 0); 
+  const TAPIOCA_PRICE = Number(product.tapiocaPrice || 0);
 
   // --- 3. ESTADOS ---
   const [currentPrice, setCurrentPrice] = useState(product.price);
 
   // GENERAL
   const [friesType, setFriesType] = useState(() => initialValues?.rawState?.friesType || 'Papas a la Francesa');
+  
+  // SALSAS EXTRAS (Lista del admin)
   const [extraSaucePots, setExtraSaucePots] = useState(initialValues?.rawState?.extraSaucePots || 0);
+  const [chosenSauces, setChosenSauces] = useState(initialValues?.rawState?.chosenSauces || []);
+
+  // PIEZAS EXTRAS (Unificado para todas las categorías)
+  // Ahora usamos este estado para Burger, Wings, Pasta y Box
+  const [extraSnacks, setExtraSnacks] = useState(() => initialValues?.rawState?.extraSnacks || { alitas: 0, boneless: 0, tiras: 0 });
+  const [extraSnackSauce, setExtraSnackSauce] = useState(() => initialValues?.rawState?.extraSnackSauce || 'Natural');
 
   // HAMBURGUESA
   const [activeIngredients, setActiveIngredients] = useState(() => initialValues?.rawState?.activeIngredients || product.standardIngredients || []);
   const [extraIngredients, setExtraIngredients] = useState(() => initialValues?.rawState?.extraIngredients || []);
   const [meatType, setMeatType] = useState(() => initialValues?.rawState?.meatType || 'Pechuga Crispy');
   const [burgerBathedFlavor, setBurgerBathedFlavor] = useState(() => initialValues?.rawState?.burgerBathedFlavor || ''); 
-  const [burgerSnacks, setBurgerSnacks] = useState(() => initialValues?.rawState?.burgerSnacks || { alitas: 0, boneless: 0, tiras: 0 });
-  const [burgerSnackSauce, setBurgerSnackSauce] = useState(() => initialValues?.rawState?.burgerSnackSauce || 'Natural');
-
+  
   // ALITAS / BONELESS / TIRAS
-  const [extraPieces, setExtraPieces] = useState(initialValues?.rawState?.extraPieces || 0);
   const [sauceMode, setSauceMode] = useState(() => initialValues?.rawState?.sauceMode || 'Natural'); 
   const [useSplitFlavors, setUseSplitFlavors] = useState(() => initialValues?.rawState?.useSplitFlavors || false);
   const [selectedFlavors, setSelectedFlavors] = useState(() => initialValues?.rawState?.selectedFlavors || { flavor1: '', flavor2: '' });
@@ -47,21 +63,21 @@ export default function ProductCustomizer({ product, initialValues, onClose, onA
 
   // BEBIDAS
   const [drinkFlavor, setDrinkFlavor] = useState(() => initialValues?.rawState?.drinkFlavor || '');
-  const [drinkOptions, setDrinkOptions] = useState(() => initialValues?.rawState?.drinkOptions || { ice: true, temp: 'Al Tiempo' });
-  const [frappeOptions, setFrappeOptions] = useState(() => initialValues?.rawState?.frappeOptions || { chantilly: 'Normal', ice: 'Normal', tapioca: true });
+  const [iceLevel, setIceLevel] = useState(() => initialValues?.rawState?.iceLevel || 'Normal');
+  const [drinkTemp, setDrinkTemp] = useState(() => initialValues?.rawState?.drinkTemp || 'Helada');
+  const [frappeOptions, setFrappeOptions] = useState(() => initialValues?.rawState?.frappeOptions || { chantilly: 'Normal', ice: 'Normal', tapioca: false });
 
   // BOX FAMILIAR
   const [boxConfig, setBoxConfig] = useState(() => initialValues?.rawState?.boxConfig || {
       mainChoice: 'Pasta y Hamburguesa', 
       proteinChoice: 'Alitas y Boneless',
       tirasMode: 'Natural',
+      tirasFlavor: '', 
       burgerMeat: 'Pechuga Crispy',
       burgerBathed: '', 
       wingsBonelessFlavors: { f1: '', f2: '' }, 
       splitWingsBoneless: false
   });
-  const [boxExtras, setBoxExtras] = useState(() => initialValues?.rawState?.boxExtras || { alitas: 0, boneless: 0, tiras: 0 });
-  const [boxExtraSauce, setBoxExtraSauce] = useState('Natural');
 
   const [selectedExtras, setSelectedExtras] = useState(initialValues?.extras || []);
   const SAUCES_LIST = product.sauceOptions || ['BBQ', 'Búfalo', 'Mango Habanero'];
@@ -69,56 +85,84 @@ export default function ProductCustomizer({ product, initialValues, onClose, onA
   // --- 4. CÁLCULO DE PRECIO ---
   useEffect(() => {
     let newPrice = Number(product.price);
+    
+    // Extras genéricos (Tocino, Queso, etc.)
     selectedExtras.forEach(extra => newPrice += Number(extra.price));
-    if (extraSaucePots > 0) newPrice += (extraSaucePots * POT_PRICE);
+    
+    // Salsas extra (Botecitos)
+    const totalExtraSauces = product.extraSauceNames?.length > 0 ? chosenSauces.length : extraSaucePots;
+    if (totalExtraSauces > 0) newPrice += (totalExtraSauces * POT_PRICE);
 
+    // Piezas Extras (Alitas/Boneless/Tiras) - Aplica para todas las categorías que lo muestren
+    const totalSnacks = extraSnacks.alitas + extraSnacks.boneless + extraSnacks.tiras;
+    if (totalSnacks > 0) newPrice += (totalSnacks * SNACK_PRICE);
+
+    // Lógica Hamburguesa
     if (isBurger) {
         if (extraIngredients.length > 0) newPrice += (extraIngredients.length * (product.standardIngredientsPrice || 0));
-        const totalBurgerSnacks = burgerSnacks.alitas + burgerSnacks.boneless + burgerSnacks.tiras;
-        if (totalBurgerSnacks > 0) newPrice += (totalBurgerSnacks * SNACK_PRICE);
         if (burgerBathedFlavor) newPrice += 5; 
     }
 
-    if ((isWingsType || isPastaProtein) && extraPieces > 0) {
-        newPrice += (extraPieces * PIECE_PRICE);
+    // Lógica Hot Dog
+    if (isHotDog && isCombo) {
+        newPrice = (Number(product.price) * 2) + 10;
     }
 
+    // Lógica Frappe
+    if (isFrappe && frappeOptions.tapioca) {
+        newPrice += TAPIOCA_PRICE;
+    }
+
+    // Lógica Box
     if (isBox) {
-        const totalBoxExtras = boxExtras.alitas + boxExtras.boneless + boxExtras.tiras;
-        if (totalBoxExtras > 0) newPrice += (totalBoxExtras * SNACK_PRICE);
-        if (extraPieces > 0) newPrice += (extraPieces * PIECE_PRICE);
+        // Ingredientes extra en la hamburguesa del box
+        if (extraIngredients.length > 0 && boxConfig.mainChoice.includes('Hamburguesa')) {
+             newPrice += (extraIngredients.length * (product.standardIngredientsPrice || 0));
+        }
+        // Nota: Las piezas extras ya se sumaron arriba con totalSnacks * SNACK_PRICE
     }
 
     setCurrentPrice(newPrice);
-  }, [selectedExtras, extraSaucePots, extraIngredients, burgerSnacks, extraPieces, boxExtras, product, burgerBathedFlavor, PIECE_PRICE, POT_PRICE, SNACK_PRICE]);
+  }, [selectedExtras, extraSaucePots, chosenSauces, extraIngredients, extraSnacks, product, burgerBathedFlavor, isCombo, frappeOptions.tapioca, boxConfig.mainChoice]);
 
   // --- UI HELPERS ---
   const toggleStandardIngredient = (ing) => activeIngredients.includes(ing) ? setActiveIngredients(activeIngredients.filter(i => i !== ing)) : setActiveIngredients([...activeIngredients, ing]);
   const toggleExtraIngredient = (ing) => extraIngredients.includes(ing) ? setExtraIngredients(extraIngredients.filter(i => i !== ing)) : setExtraIngredients([...extraIngredients, ing]);
   const toggleExtra = (extra) => selectedExtras.find(e => e.name === extra.name) ? setSelectedExtras(selectedExtras.filter(e => e.name !== extra.name)) : setSelectedExtras([...selectedExtras, extra]);
-  const updateBurgerSnack = (type, delta) => { const val = burgerSnacks[type] + delta; if (val >= 0) setBurgerSnacks({ ...burgerSnacks, [type]: val }); };
-  const updateBoxExtra = (type, delta) => { const val = boxExtras[type] + delta; if (val >= 0) setBoxExtras({ ...boxExtras, [type]: val }); };
+  
+  // Función unificada para actualizar snacks extras
+  const updateExtraSnack = (type, delta) => { const val = extraSnacks[type] + delta; if (val >= 0) setExtraSnacks({ ...extraSnacks, [type]: val }); };
+
+  // --- HELPER PARA SALSAS EXTRAS ---
+  const addSpecificSauce = (sauceName) => { setChosenSauces([...chosenSauces, sauceName]); };
+  const removeSpecificSauce = (sauceName) => {
+      const index = chosenSauces.indexOf(sauceName);
+      if (index > -1) {
+          const newArr = [...chosenSauces];
+          newArr.splice(index, 1);
+          setChosenSauces(newArr);
+      }
+  };
+  const getSauceCount = (sauceName) => chosenSauces.filter(s => s === sauceName).length;
 
   const handleConfirm = () => {
+      // Validaciones
       if ((isWingsType || isPastaProtein) && !isTiras && useSplitFlavors && (!selectedFlavors.flavor1 || !selectedFlavors.flavor2)) return showToast("Elige ambos sabores", "error");
       if ((isWingsType || isPastaProtein) && !isTiras && !useSplitFlavors && !selectedFlavors.flavor1) return showToast("Elige un sabor", "error");
       if (isTiras && sauceMode === 'Bañado' && !selectedFlavors.flavor1) return showToast("Elige la salsa para bañar", "error");
       if ((isDrink || isFrappe) && product.flavorOptions?.length > 0 && !drinkFlavor) return showToast("Elige el sabor", "error");
+      
+      // Validación Box: Tiras bañadas deben tener sabor
+      if (isBox && boxConfig.tirasMode === 'Bañadas' && !boxConfig.tirasFlavor) return showToast("Elige la salsa para las tiras", "error");
 
       let desc = [];
 
+      // --- CONSTRUCCIÓN DESCRIPCIÓN ---
       if (isBurger) {
           if (meatType) desc.push(`Carne: ${meatType}`);
           if (burgerBathedFlavor) desc.push(`Bañada en: ${burgerBathedFlavor}`);
           if (friesType) desc.push(`${friesType}`);
-          const totalSnacks = burgerSnacks.alitas + burgerSnacks.boneless + burgerSnacks.tiras;
-          if (totalSnacks > 0) {
-              let snacksDesc = [];
-              if (burgerSnacks.alitas > 0) snacksDesc.push(`${burgerSnacks.alitas} Alitas`);
-              if (burgerSnacks.boneless > 0) snacksDesc.push(`${burgerSnacks.boneless} Boneless`);
-              if (burgerSnacks.tiras > 0) snacksDesc.push(`${burgerSnacks.tiras} Tiras`);
-              desc.push(`Extras: ${snacksDesc.join(', ')} (${burgerSnackSauce})`);
-          }
+          
           const removed = (product.standardIngredients || []).filter(ing => !activeIngredients.includes(ing));
           if (removed.length > 0) desc.push(`Sin: ${removed.join(', ')}`);
           if (extraIngredients.length > 0) desc.push(`Extra: ${extraIngredients.join(', ')}`);
@@ -130,7 +174,6 @@ export default function ProductCustomizer({ product, initialValues, onClose, onA
           else flavorStr = useSplitFlavors ? `${selectedFlavors.flavor1} / ${selectedFlavors.flavor2}` : selectedFlavors.flavor1;
           
           desc.push(`Sabor: ${flavorStr}`);
-          if (extraPieces > 0) desc.push(`+${extraPieces} pz extra`);
           if (!isPastaProtein) desc.push(friesType);
       }
 
@@ -143,29 +186,59 @@ export default function ProductCustomizer({ product, initialValues, onClose, onA
       if (isBox) {
           desc.push(`[${boxConfig.mainChoice}]`);
           desc.push(`[${boxConfig.proteinChoice}]`);
-          if (boxConfig.mainChoice.includes('Hamburguesa')) desc.push(`Burger: ${boxConfig.burgerMeat} ${boxConfig.burgerBathed ? `(${boxConfig.burgerBathed})` : ''}`);
-          desc.push(`Tiras: ${boxConfig.tirasMode}`);
-          const boxFlavors = boxConfig.splitWingsBoneless ? `${boxConfig.wingsBonelessFlavors.f1} / ${boxConfig.wingsBonelessFlavors.f2}` : boxConfig.wingsBonelessFlavors.f1 || 'Al Gusto';
-          desc.push(`Salsas: ${boxFlavors}`);
-          desc.push(friesType);
-          const totalBoxExtras = boxExtras.alitas + boxExtras.boneless + boxExtras.tiras;
-          if (totalBoxExtras > 0) {
-               let extB = [];
-               if (boxExtras.alitas > 0) extB.push(`${boxExtras.alitas} Alitas`);
-               if (boxExtras.boneless > 0) extB.push(`${boxExtras.boneless} Boneless`);
-               if (boxExtras.tiras > 0) extB.push(`${boxExtras.tiras} Tiras`);
-               desc.push(`Extras Box: ${extB.join(', ')} (${boxExtraSauce})`);
+          if (boxConfig.mainChoice.includes('Hamburguesa')) {
+              desc.push(`Burger: ${boxConfig.burgerMeat} ${boxConfig.burgerBathed ? `(${boxConfig.burgerBathed})` : ''}`);
+              // Ingredientes de la burger del box
+              const removed = (product.standardIngredients || []).filter(ing => !activeIngredients.includes(ing));
+              if (removed.length > 0) desc.push(`Burger Sin: ${removed.join(', ')}`);
+              if (extraIngredients.length > 0) desc.push(`Burger Extra: ${extraIngredients.join(', ')}`);
           }
-          if (extraPieces > 0) desc.push(`+${extraPieces} pz extra (Box)`);
+          
+          const tirasDesc = boxConfig.tirasMode === 'Bañadas' ? `Bañadas en ${boxConfig.tirasFlavor}` : 'Naturales';
+          desc.push(`Tiras: ${tirasDesc}`);
+          
+          const boxFlavors = boxConfig.splitWingsBoneless ? `${boxConfig.wingsBonelessFlavors.f1} / ${boxConfig.wingsBonelessFlavors.f2}` : boxConfig.wingsBonelessFlavors.f1 || 'Al Gusto';
+          desc.push(`Salsas Alitas/Boneless: ${boxFlavors}`);
+          desc.push(friesType);
       }
 
-      if (isDrink) desc.push(`${drinkFlavor} ${product.hasIceOption ? (drinkOptions.ice ? 'Con Hielo' : 'Sin Hielo') : ''} ${product.hasTempOption ? drinkOptions.temp : ''}`);
-      if (isFrappe) desc.push(`${drinkFlavor}, Chantilly: ${frappeOptions.chantilly}, Hielo: ${frappeOptions.ice}, ${frappeOptions.tapioca ? 'Con Tapioca' : 'Sin Tapioca'}`);
+      // --- PIEZAS EXTRAS (Descripción Común) ---
+      const totalSnacks = extraSnacks.alitas + extraSnacks.boneless + extraSnacks.tiras;
+      if (totalSnacks > 0) {
+          let snacksDesc = [];
+          if (extraSnacks.alitas > 0) snacksDesc.push(`${extraSnacks.alitas} Alitas`);
+          if (extraSnacks.boneless > 0) snacksDesc.push(`${extraSnacks.boneless} Boneless`);
+          if (extraSnacks.tiras > 0) snacksDesc.push(`${extraSnacks.tiras} Tiras`);
+          desc.push(`Piezas Extras: ${snacksDesc.join(', ')} (${extraSnackSauce})`);
+      }
 
-      if (extraSaucePots > 0) desc.push(`+${extraSaucePots} botes salsa`);
+      if (isDrink || isFrappe) {
+          if (drinkFlavor) desc.push(`Sabor: ${drinkFlavor}`);
+          if (isAguas && product.hasIceOption) desc.push(`Hielo: ${iceLevel}`);
+          if (isEmbotellado && product.hasTempOption) desc.push(`Temperatura: ${drinkTemp}`);
+          if (isFrappe) {
+              desc.push(`Chantilly: ${frappeOptions.chantilly}`);
+              desc.push(`Hielo: ${frappeOptions.ice}`);
+              if (frappeOptions.tapioca) desc.push(`Con Tapioca (+${TAPIOCA_PRICE})`);
+              else desc.push(`Sin Tapioca`);
+          }
+      }
+
+      // Salsas Extras (Botecitos)
+      if (product.extraSauceNames?.length > 0) {
+          if (chosenSauces.length > 0) {
+              const counts = {};
+              chosenSauces.forEach(x => { counts[x] = (counts[x] || 0) + 1; });
+              const sauceStr = Object.entries(counts).map(([name, count]) => `${name} (x${count})`).join(', ');
+              desc.push(`Salsas Extras (Botecitos): ${sauceStr}`);
+          }
+      } else if (extraSaucePots > 0) {
+          desc.push(`+${extraSaucePots} botes salsa extra`);
+      }
+
       if (selectedExtras.length > 0) desc.push(`Extras: ${selectedExtras.map(e => e.name).join(', ')}`);
 
-      const rawState = { activeIngredients, extraIngredients, friesType, extraSaucePots, meatType, burgerBathedFlavor, burgerSnacks, burgerSnackSauce, extraPieces, sauceMode, selectedFlavors, useSplitFlavors, isCombo, boxConfig, boxExtras, boxExtraSauce, drinkFlavor, drinkOptions, frappeOptions };
+      const rawState = { activeIngredients, extraIngredients, friesType, extraSaucePots, chosenSauces, meatType, burgerBathedFlavor, extraSnacks, extraSnackSauce, sauceMode, selectedFlavors, useSplitFlavors, isCombo, boxConfig, drinkFlavor, iceLevel, drinkTemp, frappeOptions };
 
       onAddToCart({ ...product, price: currentPrice, customization: { removed: [], extras: selectedExtras, rawState, finalPrice: currentPrice }, customizationDescription: desc.join('. ') });
       onClose();
@@ -173,38 +246,36 @@ export default function ProductCustomizer({ product, initialValues, onClose, onA
 
   if (!product) return null;
 
-  // --- ESTILOS VISUALES ---
   const optionBtnClass = (active) => `cursor-pointer rounded-xl p-3 flex items-center justify-center gap-2 font-bold text-sm transition-all border-2 ${active ? 'bg-yellow-500 text-black border-yellow-500 shadow-md' : 'bg-zinc-800 text-gray-400 border-zinc-700 hover:border-zinc-500'}`;
   const selectClass = "w-full p-3 rounded-xl bg-zinc-800 border border-zinc-600 text-white focus:border-yellow-500 focus:outline-none focus:ring-1 focus:ring-yellow-500 appearance-none";
   const counterBtnClass = "w-8 h-8 rounded-full flex items-center justify-center font-bold text-lg transition-colors bg-zinc-700 hover:bg-yellow-500 hover:text-black text-white";
 
   return (
     <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/90 p-4 backdrop-blur-md animate-fade-in">
-      {/* CAMBIO: max-h-[70vh] para hacerlo más compacto verticalmente */}
-      <div className="bg-zinc-900 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden border border-yellow-500/30 flex flex-col max-h-[70vh]">
+      <div className="bg-zinc-900 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden border border-yellow-500/30 flex flex-col max-h-[85vh]">
         
-        {/* Header */}
         <div className="bg-yellow-500 p-4 flex justify-between items-center shrink-0">
             <h3 className="font-black text-lg text-zinc-900 uppercase tracking-wide truncate pr-4">{product.name}</h3>
             <button onClick={onClose} className="text-zinc-900 hover:bg-black/10 p-2 rounded-full transition"><FaTimes size={20}/></button>
         </div>
 
-        {/* Scroll Content */}
         <div className="p-5 overflow-y-auto custom-scrollbar space-y-6 flex-1 text-gray-100">
             
             {/* --- HAMBURGUESA --- */}
             {isBurger && (
                 <div className="space-y-6">
-                    <div>
-                        <p className="font-bold text-yellow-500 mb-2 uppercase text-xs tracking-widest flex items-center gap-2"><FaHamburger/> Tipo de Carne</p>
-                        <div className="grid grid-cols-2 gap-3">
-                            {['Pechuga Crispy', 'Tiras de Pollo'].map(type => (
-                                <div key={type} onClick={() => setMeatType(type)} className={optionBtnClass(meatType === type)}>
-                                    {meatType === type && <FaCheck/>} {type}
-                                </div>
-                            ))}
+                    {product.allowMeatSwap && (
+                        <div>
+                            <p className="font-bold text-yellow-500 mb-2 uppercase text-xs tracking-widest flex items-center gap-2"><FaHamburger/> Tipo de Carne</p>
+                            <div className="grid grid-cols-2 gap-3">
+                                {['Pechuga Crispy', 'Tiras de Pollo'].map(type => (
+                                    <div key={type} onClick={() => setMeatType(type)} className={optionBtnClass(meatType === type)}>
+                                        {meatType === type && <FaCheck/>} {type}
+                                    </div>
+                                ))}
+                            </div>
                         </div>
-                    </div>
+                    )}
 
                     <div className="bg-zinc-800/50 p-3 rounded-xl border border-zinc-700">
                         <p className="text-xs font-bold text-gray-400 mb-2 uppercase">¿Bañar Carne? (+$5)</p>
@@ -214,16 +285,18 @@ export default function ProductCustomizer({ product, initialValues, onClose, onA
                         </select>
                     </div>
 
-                    <div>
-                        <p className="font-bold text-yellow-500 mb-2 uppercase text-xs tracking-widest flex items-center gap-2"><FaUtensils/> Papas</p>
-                        <div className="grid grid-cols-2 gap-3">
-                            {['Papas a la Francesa', 'Papas Gajo'].map(type => (
-                                <div key={type} onClick={() => setFriesType(type)} className={optionBtnClass(friesType === type)}>
-                                    {friesType === type && <FaCheck/>} {type.replace('Papas ', '')}
-                                </div>
-                            ))}
+                    {product.hasFriesOption && (
+                        <div>
+                            <p className="font-bold text-yellow-500 mb-2 uppercase text-xs tracking-widest flex items-center gap-2"><FaUtensils/> Papas</p>
+                            <div className="grid grid-cols-2 gap-3">
+                                {['Papas a la Francesa', 'Papas Gajo'].map(type => (
+                                    <div key={type} onClick={() => setFriesType(type)} className={optionBtnClass(friesType === type)}>
+                                        {friesType === type && <FaCheck/>} {type.replace('Papas ', '')}
+                                    </div>
+                                ))}
+                            </div>
                         </div>
-                    </div>
+                    )}
 
                     {product.standardIngredients?.length > 0 && (
                         <div className="space-y-3">
@@ -252,40 +325,12 @@ export default function ProductCustomizer({ product, initialValues, onClose, onA
                             </div>
                         </div>
                     )}
-
-                    {product.allowExtraSnacks && (
-                        <div className="bg-zinc-800 p-4 rounded-xl border border-zinc-700">
-                            <h4 className="font-bold mb-3 flex items-center gap-2 text-blue-400 text-xs uppercase tracking-wide"><FaDrumstickBite/> Agregar Piezas (+${SNACK_PRICE} c/u)</h4>
-                            <div className="space-y-3">
-                                {['alitas', 'boneless', 'tiras'].map(snack => (
-                                    <div key={snack} className="flex justify-between items-center capitalize text-sm bg-zinc-900 p-2 rounded-lg">
-                                        <span className="ml-2 font-medium">{snack}</span>
-                                        <div className="flex items-center gap-3">
-                                            <button onClick={()=>updateBurgerSnack(snack, -1)} className={counterBtnClass}><FaMinus size={10}/></button>
-                                            <span className="font-bold text-yellow-500 w-4 text-center">{burgerSnacks[snack]}</span>
-                                            <button onClick={()=>updateBurgerSnack(snack, 1)} className={counterBtnClass}><FaPlus size={10}/></button>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                            {(burgerSnacks.alitas > 0 || burgerSnacks.boneless > 0 || burgerSnacks.tiras > 0) && (
-                                <div className="mt-3 pt-3 border-t border-zinc-700">
-                                    <p className="text-xs mb-1 font-bold text-gray-400">Salsa para piezas extra:</p>
-                                    <select className={selectClass} value={burgerSnackSauce} onChange={e=>setBurgerSnackSauce(e.target.value)}>
-                                        <option>Natural</option>
-                                        {SAUCES_LIST.map(s=><option key={s} value={s}>{s}</option>)}
-                                    </select>
-                                </div>
-                            )}
-                        </div>
-                    )}
                 </div>
             )}
 
             {/* --- ALITAS / BONELESS / TIRAS / PASTA --- */}
             {(isWingsType || isPastaProtein) && (
                 <div className="space-y-6">
-                    {/* Modo Tiras */}
                     {isTiras && (
                         <div className="grid grid-cols-2 gap-3 mb-4">
                             <div onClick={()=>{setSauceMode('Natural'); setSelectedFlavors({flavor1:'', flavor2:''})}} className={optionBtnClass(sauceMode === 'Natural')}>Naturales</div>
@@ -293,16 +338,13 @@ export default function ProductCustomizer({ product, initialValues, onClose, onA
                         </div>
                     )}
 
-                    {/* Selector Salsas */}
                     {(!isTiras || sauceMode === 'Bañado') && (
                         <div className="bg-zinc-800 p-4 rounded-xl border border-zinc-700">
                             <div className="flex justify-between items-center mb-3">
                                 <h4 className="font-bold text-yellow-500 text-xs uppercase tracking-wide">Sabor (Incluido)</h4>
-                                {product.canSplitSauces && (
-                                    <button onClick={()=>setUseSplitFlavors(!useSplitFlavors)} className="text-xs bg-zinc-700 px-2 py-1 rounded text-white hover:bg-zinc-600 transition border border-zinc-600">
-                                        {useSplitFlavors ? 'Un solo sabor' : 'Mitad y Mitad'}
-                                    </button>
-                                )}
+                                <button onClick={()=>setUseSplitFlavors(!useSplitFlavors)} className="text-xs bg-zinc-700 px-2 py-1 rounded text-white hover:bg-zinc-600 transition border border-zinc-600">
+                                    {useSplitFlavors ? 'Un solo sabor' : 'Combinar Mitad y Mitad'}
+                                </button>
                             </div>
                             {useSplitFlavors ? (
                                 <div className="space-y-3">
@@ -315,17 +357,6 @@ export default function ProductCustomizer({ product, initialValues, onClose, onA
                         </div>
                     )}
 
-                    {/* Piezas Extra */}
-                    <div className="flex justify-between items-center bg-zinc-800 p-3 rounded-xl border border-zinc-700">
-                        <div><p className="font-bold text-sm text-white">Agregar Piezas Extra</p><p className="text-xs text-gray-400">+${PIECE_PRICE} c/u</p></div>
-                        <div className="flex items-center gap-3">
-                            <button onClick={()=>setExtraPieces(Math.max(0,extraPieces-1))} className={counterBtnClass}><FaMinus size={10}/></button>
-                            <span className="font-bold text-yellow-500 w-4 text-center">{extraPieces}</span>
-                            <button onClick={()=>setExtraPieces(extraPieces+1)} className={counterBtnClass}><FaPlus size={10}/></button>
-                        </div>
-                    </div>
-
-                    {/* Papas */}
                     {!isPastaProtein && (
                         <div>
                             <p className="font-bold text-yellow-500 mb-2 uppercase text-xs tracking-widest flex items-center gap-2"><FaUtensils/> Acompañamiento</p>
@@ -341,13 +372,47 @@ export default function ProductCustomizer({ product, initialValues, onClose, onA
                 </div>
             )}
 
+            {/* --- SECCIÓN PIEZAS EXTRAS (UNIFICADA) --- */}
+            {/* Aplica para Hamburguesa, Alitas, Boneless, Tiras, Pastas y Box */}
+            {showExtraSnacksList && (
+                <div className="bg-zinc-800 p-4 rounded-xl border border-zinc-700">
+                    <h4 className="font-bold mb-3 flex items-center gap-2 text-blue-400 text-xs uppercase tracking-wide"><FaDrumstickBite/> Agregar Piezas Extra (+${SNACK_PRICE} c/u)</h4>
+                    <div className="space-y-3">
+                        {['alitas', 'boneless', 'tiras'].map(snack => (
+                            <div key={snack} className="flex justify-between items-center capitalize text-sm bg-zinc-900 p-2 rounded-lg">
+                                <span className="ml-2 font-medium">{snack}</span>
+                                <div className="flex items-center gap-3">
+                                    <button onClick={()=>updateExtraSnack(snack, -1)} className={counterBtnClass}><FaMinus size={10}/></button>
+                                    <span className="font-bold text-yellow-500 w-4 text-center">{extraSnacks[snack]}</span>
+                                    <button onClick={()=>updateExtraSnack(snack, 1)} className={counterBtnClass}><FaPlus size={10}/></button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    {/* Selector de Salsa para los extras */}
+                    {(extraSnacks.alitas > 0 || extraSnacks.boneless > 0 || extraSnacks.tiras > 0) && (
+                        <div className="mt-3 pt-3 border-t border-zinc-700">
+                            <p className="text-xs mb-1 font-bold text-gray-400">Salsa para piezas extra:</p>
+                            <select className={selectClass} value={extraSnackSauce} onChange={e=>setExtraSnackSauce(e.target.value)}>
+                                <option>Natural</option>
+                                {SAUCES_LIST.map(s=><option key={s} value={s}>{s}</option>)}
+                            </select>
+                        </div>
+                    )}
+                </div>
+            )}
+
             {/* --- HOT DOGS --- */}
             {isHotDog && (
                 <div className="space-y-5">
-                    <div className="grid grid-cols-2 gap-3">
-                        <div onClick={() => setIsCombo(false)} className={optionBtnClass(!isCombo)}>Individual</div>
-                        <div onClick={() => setIsCombo(true)} className={optionBtnClass(isCombo)}>Combo</div>
-                    </div>
+                    {product.hasComboOption ? (
+                        <div className="grid grid-cols-2 gap-3">
+                            <div onClick={() => setIsCombo(false)} className={optionBtnClass(!isCombo)}>Individual</div>
+                            <div onClick={() => setIsCombo(true)} className={optionBtnClass(isCombo)}>Combo</div>
+                        </div>
+                    ) : (
+                        <div className="text-center text-sm font-bold text-white bg-zinc-800 p-2 rounded">Perro Caliente Individual</div>
+                    )}
                     
                     {isCombo && (
                         <div className="bg-zinc-800 p-4 rounded-xl border border-zinc-700 animate-fade-in">
@@ -393,14 +458,49 @@ export default function ProductCustomizer({ product, initialValues, onClose, onA
                                     {['Pechuga Crispy', 'Tiras de Pollo'].map(m => (<div key={m} onClick={()=>setBoxConfig({...boxConfig, burgerMeat:m})} className={`p-2 border rounded-lg text-center text-xs font-bold cursor-pointer ${boxConfig.burgerMeat===m ? 'bg-yellow-500 text-black border-yellow-500' : 'bg-zinc-900 border-zinc-600'}`}>{m}</div>))}
                                 </div>
                                 <select className={selectClass} value={boxConfig.burgerBathed} onChange={e=>setBoxConfig({...boxConfig, burgerBathed:e.target.value})}><option value="">Carne Natural</option>{SAUCES_LIST.map(s=><option key={s} value={s}>Bañada en {s}</option>)}</select>
+                                
+                                {/* CONFIG INGREDIENTES HAMBURGUESA DEL BOX */}
+                                {product.standardIngredients?.length > 0 && (
+                                    <div className="mt-3 space-y-3">
+                                        <div>
+                                            <p className="text-xs font-bold mb-2 text-red-400 uppercase">Quitar Ingredientes:</p>
+                                            <div className="flex flex-wrap gap-2">
+                                                {product.standardIngredients.map(ing => {
+                                                    const isActive = activeIngredients.includes(ing);
+                                                    return (
+                                                        <button key={ing} onClick={() => toggleStandardIngredient(ing)} className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${isActive ? 'bg-zinc-800 text-gray-400 border-zinc-600' : 'bg-red-900/40 text-red-400 border-red-500 line-through'}`}>
+                                                            {ing}
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <p className="text-xs font-bold mb-2 text-green-400 uppercase">Extra (+${product.standardIngredientsPrice}):</p>
+                                            <div className="flex flex-wrap gap-2">
+                                                {product.standardIngredients.map(ing => (
+                                                    <button key={ing} onClick={() => toggleExtraIngredient(ing)} className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${extraIngredients.includes(ing) ? 'bg-green-600 text-white border-green-500 shadow-md' : 'bg-zinc-800 text-gray-400 border-zinc-600'}`}>
+                                                        {ing} {extraIngredients.includes(ing) && '+'}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         )}
 
                         <div className="pt-3 border-t border-zinc-700">
                             <p className="font-bold mb-2 text-yellow-500 text-xs uppercase">Configurar Tiras:</p>
-                            <div className="grid grid-cols-2 gap-3">
-                                {['Natural', 'Bañadas'].map(mode => (<div key={mode} onClick={()=>setBoxConfig({...boxConfig, tirasMode:mode})} className={`p-2 border rounded-lg text-center text-xs font-bold cursor-pointer ${boxConfig.tirasMode===mode ? 'bg-orange-500 text-white border-orange-500' : 'bg-zinc-900 border-zinc-600'}`}>{mode}</div>))}
+                            <div className="grid grid-cols-2 gap-3 mb-2">
+                                {['Natural', 'Bañadas'].map(mode => (<div key={mode} onClick={()=>setBoxConfig({...boxConfig, tirasMode:mode, tirasFlavor: mode === 'Natural' ? '' : boxConfig.tirasFlavor})} className={`p-2 border rounded-lg text-center text-xs font-bold cursor-pointer ${boxConfig.tirasMode===mode ? 'bg-orange-500 text-white border-orange-500' : 'bg-zinc-900 border-zinc-600'}`}>{mode}</div>))}
                             </div>
+                            {boxConfig.tirasMode === 'Bañadas' && (
+                                <select className={selectClass} value={boxConfig.tirasFlavor} onChange={e=>setBoxConfig({...boxConfig, tirasFlavor:e.target.value})}>
+                                    <option value="">Selecciona Salsa...</option>
+                                    {SAUCES_LIST.map(s=><option key={s} value={s}>{s}</option>)}
+                                </select>
+                            )}
                         </div>
                     </div>
 
@@ -427,75 +527,80 @@ export default function ProductCustomizer({ product, initialValues, onClose, onA
                             </div>
                         </div>
                     </div>
-
-                    <div className="bg-zinc-800 border border-zinc-700 p-4 rounded-xl">
-                        <p className="font-bold mb-3 text-blue-400 text-xs uppercase">Extras al Box (+${SNACK_PRICE} c/u)</p>
-                        {['alitas', 'boneless', 'tiras'].map(snack => (
-                            <div key={snack} className="flex justify-between items-center capitalize mb-2 bg-zinc-900 p-2 rounded-lg">
-                                <span className="ml-2 font-medium">{snack}</span>
-                                <div className="flex items-center gap-3">
-                                    <button onClick={()=>updateBoxExtra(snack, -1)} className={counterBtnClass}><FaMinus size={10}/></button>
-                                    <span className="font-bold text-yellow-500 w-4 text-center">{boxExtras[snack]}</span>
-                                    <button onClick={()=>updateBoxExtra(snack, 1)} className={counterBtnClass}><FaPlus size={10}/></button>
-                                </div>
-                            </div>
-                        ))}
-                        {(boxExtras.alitas > 0 || boxExtras.boneless > 0 || boxExtras.tiras > 0) && (
-                            <div className="mt-3 pt-3 border-t border-zinc-700">
-                                <span className="text-xs font-bold text-gray-400 block mb-2">Salsa Extras:</span>
-                                <select className={selectClass} value={boxExtraSauce} onChange={e=>setBoxExtraSauce(e.target.value)}>
-                                    <option>Natural</option>{SAUCES_LIST.map(s=><option key={s} value={s}>{s}</option>)}
-                                </select>
-                            </div>
-                        )}
-                    </div>
                 </div>
             )}
 
             {/* --- BEBIDAS --- */}
             {(isDrink || isFrappe) && (
-                <div className="bg-blue-900/20 p-4 rounded-xl border border-blue-800 space-y-4">
-                    <div>
-                        <p className="text-xs font-bold mb-1 text-blue-300 uppercase">Sabor:</p>
-                        <select className={selectClass} value={drinkFlavor} onChange={e=>setDrinkFlavor(e.target.value)}>
-                            <option value="">Selecciona...</option>{product.flavorOptions?.map(f=><option key={f} value={f}>{f}</option>)}
-                        </select>
-                    </div>
-                    {isDrink && (
-                        <div className="grid grid-cols-2 gap-4">
-                            {product.hasIceOption && (
-                                <div>
-                                    <p className="text-xs font-bold text-blue-300 mb-1">Hielo</p>
-                                    <div className="flex gap-2">
-                                        <button onClick={()=>setDrinkOptions({...drinkOptions, ice:true})} className={`flex-1 p-2 rounded border text-xs font-bold ${drinkOptions.ice ? 'bg-blue-500 text-white border-blue-500' : 'bg-zinc-800 border-zinc-600'}`}>Sí</button>
-                                        <button onClick={()=>setDrinkOptions({...drinkOptions, ice:false})} className={`flex-1 p-2 rounded border text-xs font-bold ${!drinkOptions.ice ? 'bg-blue-500 text-white border-blue-500' : 'bg-zinc-800 border-zinc-600'}`}>No</button>
-                                    </div>
-                                </div>
-                            )}
-                            {product.hasTempOption && (
-                                <div>
-                                    <p className="text-xs font-bold text-blue-300 mb-1">Temp</p>
-                                    <div className="flex gap-2">
-                                        <button onClick={()=>setDrinkOptions({...drinkOptions, temp:'Fría'})} className={`flex-1 p-2 rounded border text-xs font-bold ${drinkOptions.temp==='Fría' ? 'bg-blue-500 text-white border-blue-500' : 'bg-zinc-800 border-zinc-600'}`}>Fría</button>
-                                        <button onClick={()=>setDrinkOptions({...drinkOptions, temp:'Al Tiempo'})} className={`flex-1 p-2 rounded border text-xs font-bold ${drinkOptions.temp==='Al Tiempo' ? 'bg-blue-500 text-white border-blue-500' : 'bg-zinc-800 border-zinc-600'}`}>Tiempo</button>
-                                    </div>
-                                </div>
-                            )}
+                <div className="bg-zinc-800/80 p-4 rounded-xl border border-zinc-700 space-y-4">
+                    {/* SELECTOR DE SABOR (Si el admin agregó sabores) */}
+                    {product.flavorOptions?.length > 0 && (
+                        <div>
+                            <p className="text-xs font-bold mb-1 text-yellow-500 uppercase">Sabor:</p>
+                            <select className={selectClass} value={drinkFlavor} onChange={e=>setDrinkFlavor(e.target.value)}>
+                                <option value="">Selecciona sabor...</option>
+                                {product.flavorOptions.map(f=><option key={f} value={f}>{f}</option>)}
+                            </select>
                         </div>
                     )}
-                    {isFrappe && (
-                        <div className="space-y-3">
-                            <div className="flex justify-between items-center">
-                                <span className="text-sm font-bold text-blue-200">Chantilly:</span>
-                                <select className="bg-zinc-800 border border-zinc-600 rounded p-1 text-sm w-32 text-white" value={frappeOptions.chantilly} onChange={e=>setFrappeOptions({...frappeOptions, chantilly:e.target.value})}><option>Normal</option><option>Mucho</option><option>Poco</option><option>Sin</option></select>
+
+                    {/* AGUAS: NIVEL DE HIELO */}
+                    {isAguas && product.hasIceOption && (
+                        <div>
+                            <p className="text-xs font-bold text-blue-300 mb-2 flex items-center gap-1"><FaSnowflake/> Nivel de Hielo</p>
+                            <div className="grid grid-cols-4 gap-2">
+                                {['Mucho', 'Normal', 'Poco', 'Sin'].map(opt => (
+                                    <button key={opt} onClick={()=>setIceLevel(opt)} className={`p-2 rounded-lg border text-[10px] font-bold ${iceLevel===opt ? 'bg-blue-500 text-white border-blue-500' : 'bg-zinc-800 border-zinc-600'}`}>
+                                        {opt}
+                                    </button>
+                                ))}
                             </div>
-                            <div className="flex justify-between items-center">
-                                <span className="text-sm font-bold text-blue-200">Hielo:</span>
-                                <select className="bg-zinc-800 border border-zinc-600 rounded p-1 text-sm w-32 text-white" value={frappeOptions.ice} onChange={e=>setFrappeOptions({...frappeOptions, ice:e.target.value})}><option>Normal</option><option>Poco</option><option>Mucho</option></select>
+                        </div>
+                    )}
+
+                    {/* EMBOTELLADOS: TEMPERATURA */}
+                    {isEmbotellado && product.hasTempOption && (
+                        <div>
+                            <p className="text-xs font-bold text-cyan-300 mb-2 flex items-center gap-1"><FaThermometerHalf/> Temperatura</p>
+                            <div className="grid grid-cols-2 gap-2">
+                                <button onClick={()=>setDrinkTemp('Helada')} className={`p-3 rounded-lg border text-xs font-bold ${drinkTemp==='Helada' ? 'bg-cyan-600 text-white border-cyan-500' : 'bg-zinc-800 border-zinc-600'}`}>Helada ❄️</button>
+                                <button onClick={()=>setDrinkTemp('Al Tiempo')} className={`p-3 rounded-lg border text-xs font-bold ${drinkTemp==='Al Tiempo' ? 'bg-orange-600 text-white border-orange-500' : 'bg-zinc-800 border-zinc-600'}`}>Al Tiempo ☀️</button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* FRAPPES */}
+                    {isFrappe && (
+                        <div className="space-y-4">
+                            <div>
+                                <p className="text-xs font-bold text-gray-300 mb-2">Chantilly:</p>
+                                <div className="grid grid-cols-4 gap-2">
+                                    {['Mucho', 'Normal', 'Poco', 'Sin'].map(opt => (
+                                        <button key={opt} onClick={()=>setFrappeOptions({...frappeOptions, chantilly: opt})} className={`p-2 rounded-lg border text-[10px] font-bold ${frappeOptions.chantilly===opt ? 'bg-purple-600 text-white border-purple-500' : 'bg-zinc-800 border-zinc-600'}`}>
+                                            {opt}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                            <div>
+                                <p className="text-xs font-bold text-gray-300 mb-2">Hielo:</p>
+                                <div className="grid grid-cols-3 gap-2">
+                                    {['Mucho', 'Normal', 'Poco'].map(opt => (
+                                        <button key={opt} onClick={()=>setFrappeOptions({...frappeOptions, ice: opt})} className={`p-2 rounded-lg border text-[10px] font-bold ${frappeOptions.ice===opt ? 'bg-blue-600 text-white border-blue-500' : 'bg-zinc-800 border-zinc-600'}`}>
+                                            {opt}
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
                             {product.hasTapiocaOption && (
-                                <div onClick={()=>setFrappeOptions({...frappeOptions, tapioca:!frappeOptions.tapioca})} className={`p-3 rounded-lg border text-center font-bold text-sm cursor-pointer transition ${frappeOptions.tapioca ? 'bg-blue-500 text-white border-blue-500' : 'bg-zinc-800 border-zinc-600 text-gray-400'}`}>
-                                    {frappeOptions.tapioca ? 'Con Tapioca' : 'Sin Tapioca'}
+                                <div onClick={()=>setFrappeOptions({...frappeOptions, tapioca:!frappeOptions.tapioca})} className={`p-4 rounded-xl border-2 cursor-pointer flex justify-between items-center transition ${frappeOptions.tapioca ? 'bg-purple-900/50 border-purple-500' : 'bg-zinc-800 border-zinc-700'}`}>
+                                    <span className="font-bold text-sm text-white flex items-center gap-2">
+                                        🧋 Agregar Tapioca
+                                    </span>
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xs text-purple-300">+${TAPIOCA_PRICE}</span>
+                                        {frappeOptions.tapioca ? <FaCheck className="text-purple-400"/> : <div className="w-4 h-4 rounded-full border border-gray-500"></div>}
+                                    </div>
                                 </div>
                             )}
                         </div>
@@ -503,19 +608,48 @@ export default function ProductCustomizer({ product, initialValues, onClose, onA
                 </div>
             )}
 
-            {/* --- COMUNES --- */}
+            {/* --- COMUNES (Botes Salsa y Extras) --- */}
             {(!isDrink && !isFrappe && !isSimple) && (
-                <div className="bg-zinc-800 p-3 rounded-xl border border-zinc-700 flex justify-between items-center">
-                    <div><p className="font-bold text-sm text-gray-200">Botecito Salsa Extra</p><p className="text-xs text-gray-500">+${POT_PRICE} c/u</p></div>
-                    <div className="flex items-center gap-3">
-                        <button onClick={()=>setExtraSaucePots(Math.max(0,extraSaucePots-1))} className={counterBtnClass}><FaMinus size={10}/></button>
-                        <span className="font-bold text-yellow-500 w-4 text-center">{extraSaucePots}</span>
-                        <button onClick={()=>setExtraSaucePots(extraSaucePots+1)} className={counterBtnClass}><FaPlus size={10}/></button>
+                <div className="bg-zinc-800 p-3 rounded-xl border border-zinc-700">
+                    <div className="flex justify-between items-center mb-3">
+                        <div>
+                            <p className="font-bold text-sm text-gray-200">Botecito Salsa Extra</p>
+                            <p className="text-xs text-gray-500">+${POT_PRICE} c/u</p>
+                        </div>
+                        {(!product.extraSauceNames || product.extraSauceNames.length === 0) && (
+                            <div className="flex items-center gap-3">
+                                <button onClick={()=>setExtraSaucePots(Math.max(0,extraSaucePots-1))} className={counterBtnClass}><FaMinus size={10}/></button>
+                                <span className="font-bold text-yellow-500 w-4 text-center">{extraSaucePots}</span>
+                                <button onClick={()=>setExtraSaucePots(extraSaucePots+1)} className={counterBtnClass}><FaPlus size={10}/></button>
+                            </div>
+                        )}
                     </div>
+                    
+                    {product.extraSauceNames?.length > 0 && (
+                        <div className="space-y-2 border-t border-zinc-700 pt-2">
+                            {product.extraSauceNames.map(sauceName => {
+                                const count = getSauceCount(sauceName);
+                                return (
+                                    <div key={sauceName} className="flex justify-between items-center bg-zinc-900/50 p-2 rounded-lg">
+                                        <span className="text-sm font-medium text-gray-300 ml-2">{sauceName}</span>
+                                        <div className="flex items-center gap-3">
+                                            <button onClick={()=>removeSpecificSauce(sauceName)} className={`w-6 h-6 rounded-full flex items-center justify-center bg-zinc-700 hover:bg-red-500 transition ${count===0 ? 'opacity-50 pointer-events-none' : ''}`}>
+                                                <FaMinus size={8} className="text-white"/>
+                                            </button>
+                                            <span className="font-bold text-white w-4 text-center text-xs">{count}</span>
+                                            <button onClick={()=>addSpecificSauce(sauceName)} className="w-6 h-6 rounded-full flex items-center justify-center bg-zinc-700 hover:bg-green-500 transition">
+                                                <FaPlus size={8} className="text-white"/>
+                                            </button>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
                 </div>
             )}
 
-            {/* EXTRAS ADICIONALES */}
+            {/* EXTRAS ADICIONALES (Tocino, Queso, etc.) */}
             {product.extras?.length > 0 && (
                 <div>
                     <h4 className="font-bold mb-2 text-sm text-yellow-500 uppercase tracking-widest">Extras Adicionales</h4>

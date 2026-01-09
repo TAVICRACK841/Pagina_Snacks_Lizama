@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
 import { db } from '../firebase/config';
-import { collection, addDoc, getDocs, doc, updateDoc, setDoc, onSnapshot, deleteDoc, query, orderBy, where } from 'firebase/firestore'; // Agregué 'where'
+import { collection, addDoc, getDocs, doc, updateDoc, setDoc, onSnapshot, deleteDoc, query, orderBy } from 'firebase/firestore';
 import { jsPDF } from "jspdf";
 import autoTable from 'jspdf-autotable';
 import { showToast } from '../stores/toastStore';
 import { 
     FaTrash, FaEdit, FaFilePdf, FaPlus, FaTimes, FaCogs, FaListUl, 
-    FaUtensils, FaHamburger, FaDrumstickBite, FaPepperHot, FaIceCream, FaWineBottle, FaMoneyBillWave, FaCamera, FaPalette, FaBoxOpen, FaHeadset, FaEnvelope, FaCheckDouble, FaClock 
+    FaUtensils, FaHamburger, FaDrumstickBite, FaPepperHot, FaIceCream, FaWineBottle, FaMoneyBillWave, FaCamera, FaPalette, FaBoxOpen, FaHeadset, FaEnvelope, FaCheckDouble, FaSnowflake, FaThermometerHalf, FaGlassWhiskey, FaCreditCard 
 } from 'react-icons/fa';
 
 export default function AdminDashboard() {
@@ -30,7 +30,7 @@ export default function AdminDashboard() {
   const [orders, setOrders] = useState([]); 
   const [users, setUsers] = useState([]);
   const [products, setProducts] = useState([]); 
-  const [tickets, setTickets] = useState([]); // <--- NUEVO: Estado para los mensajes
+  const [tickets, setTickets] = useState([]); 
 
   // IMAGENES
   const [imageFile, setImageFile] = useState(null);
@@ -48,13 +48,22 @@ export default function AdminDashboard() {
       'pasta con camarones', 'dedos de queso'
   ];
 
+  // --- LISTA DE BANCOS RECUPERADA ---
+  const BANKS = ['BBVA', 'Santander', 'Banamex', 'Banorte', 'HSBC', 'Banco Azteca', 'Bancoppel', 'Spin by Oxxo', 'Nu', 'Transferencia', 'Otro'];
+
   const initialProductState = { 
       name: '', price: '', category: 'hamburguesas', description: '', inStock: true,
       allowsCustomization: true,
       standardIngredients: [], extras: [], sauceOptions: [], flavorOptions: [], 
+      extraSauceNames: [], 
       isCountable: false, pricePerExtraPiece: 0, canSplitSauces: false, extraSaucePotPrice: 0, 
-      allowMeatSwap: false, allowExtraSnacks: false, extraSnackPrice: 0, standardIngredientsPrice: 0, 
-      hasIceOption: false, hasTempOption: false, hasChantillyOption: false, hasTapiocaOption: false, hasFriesOption: false
+      allowMeatSwap: false, 
+      allowExtraSnacks: false, extraSnackPrice: 0, standardIngredientsPrice: 0, 
+      hasIceOption: false, 
+      hasTempOption: false, 
+      hasTapiocaOption: false, 
+      tapiocaPrice: 0, 
+      hasComboOption: false 
   };
 
   const [productForm, setProductForm] = useState(initialProductState);
@@ -62,6 +71,7 @@ export default function AdminDashboard() {
   const [editId, setEditId] = useState(null);
   const [tempStandard, setTempStandard] = useState('');
   const [tempSauce, setTempSauce] = useState('');
+  const [tempExtraSauce, setTempExtraSauce] = useState(''); 
   const [tempFlavor, setTempFlavor] = useState('');
   const [tempExtra, setTempExtra] = useState({ name: '', price: '' });
 
@@ -90,24 +100,53 @@ export default function AdminDashboard() {
     if (activeTab === 'menu') fetchProducts();
     if (activeTab === 'roles') fetchUsers();
     if (activeTab === 'finanzas') { fetchOrders(); fetchExpenses(); }
-    if (activeTab === 'buzon') fetchTickets(); // <--- Cargar tickets al entrar a buzón
+    if (activeTab === 'buzon') fetchTickets();
   }, [activeTab]);
 
   const addToList = (listName, value) => { if (!value) return; setProductForm({ ...productForm, [listName]: [...(productForm[listName] || []), value] }); };
   const removeFromList = (listName, index) => { const updatedList = productForm[listName].filter((_, i) => i !== index); setProductForm({ ...productForm, [listName]: updatedList }); };
+  
   const addStandardIngredient = () => { addToList('standardIngredients', tempStandard.trim()); setTempStandard(''); };
   const addSauceOption = () => { addToList('sauceOptions', tempSauce.trim()); setTempSauce(''); };
+  const addExtraSauceName = () => { addToList('extraSauceNames', tempExtraSauce.trim()); setTempExtraSauce(''); };
   const addFlavorOption = () => { addToList('flavorOptions', tempFlavor.trim()); setTempFlavor(''); };
   const addExtraOption = () => { if (!tempExtra.name.trim()) return; const price = tempExtra.price ? Number(tempExtra.price) : 0; setProductForm({ ...productForm, extras: [...(productForm.extras || []), { ...tempExtra, price }] }); setTempExtra({ name: '', price: '' }); };
 
   const c = productForm.category;
   const isBurger = c === 'hamburguesas';
-  const isWingsType = ['alitas', 'boneless', 'tiras', 'media alitas', 'media boneless', 'media tiras'].includes(c);
-  const isPastaProtein = ['pasta con alitas', 'pasta con boneless', 'pasta con tiras', 'media pasta con alitas', 'media pasta con boneless', 'media pasta con tiras'].includes(c);
   const isHotDog = c === 'perros calientes';
-  const isBox = ['box familiar', 'mini box'].includes(c);
-  const isDrinkFlavor = ['embotellado', 'aguas naturales'].includes(c);
+  
+  const isDrink = ['frappe', 'jugo', 'embotellado', 'aguas naturales'].includes(c);
   const isFrappe = c === 'frappe';
+  const isAguas = c === 'aguas naturales';
+  const isEmbotellado = c === 'embotellado';
+
+  const needsCoatingSauces = [
+      'hamburguesas', 'alitas', 'boneless', 'tiras', 
+      'media alitas', 'media boneless', 'media tiras',
+      'pasta con alitas', 'pasta con boneless', 'pasta con tiras',
+      'media pasta con alitas', 'media pasta con boneless', 'media pasta con tiras',
+      'box familiar', 'mini box'
+  ].includes(c);
+
+  const needsExtraSaucesConfig = [
+      'hamburguesas', 'perros calientes',
+      'alitas', 'boneless', 'tiras', 
+      'media alitas', 'media boneless', 'media tiras',
+      'pasta con alitas', 'pasta con boneless', 'pasta con tiras',
+      'media pasta con alitas', 'media pasta con boneless', 'media pasta con tiras',
+      'box familiar', 'mini box', 'dedos de queso'
+  ].includes(c);
+
+  const needsPieceConfig = [
+      'hamburguesas', 'alitas', 'boneless', 'tiras', 
+      'media alitas', 'media boneless', 'media tiras',
+      'pasta con alitas', 'pasta con boneless', 'pasta con tiras',
+      'media pasta con alitas', 'media pasta con boneless', 'media pasta con tiras',
+      'box familiar', 'mini box', 'dedos de queso'
+  ].includes(c);
+
+  const needsStandardIngredients = ['hamburguesas', 'box familiar', 'mini box'].includes(c);
   const isNoCustom = ['papas', 'media papas', 'pasta', 'media pasta', 'jugo'].includes(c);
 
   const handleSaveProduct = async (e) => { 
@@ -135,7 +174,6 @@ export default function AdminDashboard() {
   const fetchOrders = async () => { const q = query(collection(db, "orders"), orderBy("createdAt", "desc")); const s = await getDocs(q); setOrders(s.docs.map(d => ({ id: d.id, ...d.data() })).filter(o => ['completado', 'entregado'].includes(o.status))); };
   const fetchExpenses = async () => { const q = query(collection(db, "expenses"), orderBy("createdAt", "desc")); const s = await getDocs(q); setExpenses(s.docs.map(d => ({ id: d.id, ...d.data() }))); };
   
-  // --- NUEVAS FUNCIONES PARA EL BUZÓN DE SOPORTE ---
   const fetchTickets = async () => {
       const q = query(collection(db, "support_tickets"), orderBy("createdAt", "desc"));
       const s = await getDocs(q);
@@ -143,7 +181,6 @@ export default function AdminDashboard() {
   };
 
   const markTicketAsRead = async (ticket) => {
-      // Alternar estado: si es pending lo pasamos a resolved y viceversa
       const newStatus = ticket.status === 'pending' ? 'resolved' : 'pending';
       await updateDoc(doc(db, "support_tickets", ticket.id), { status: newStatus });
       fetchTickets();
@@ -156,7 +193,6 @@ export default function AdminDashboard() {
       fetchTickets();
       showToast("Mensaje eliminado", "error");
   };
-  // ------------------------------------------------
 
   const handleAddExpense = async (e) => {
       e.preventDefault();
@@ -193,9 +229,50 @@ export default function AdminDashboard() {
   const fetchUsers = async () => { const s = await getDocs(collection(db, "users")); setUsers(s.docs.map(d => ({ id: d.id, ...d.data() }))); };
   const handleUpdateRole = async (uid, role) => { if(window.confirm(`¿Cambiar rol?`)) { await updateDoc(doc(db, "users", uid), { role }); fetchUsers(); showToast("Rol actualizado", 'success'); } };
   const toggleStore = async () => { try { const newState = !isStoreOpen; await setDoc(doc(db, "store_config", "main"), { isOpen: newState }, { merge: true }); showToast(newState ? "Local ABIERTO" : "Local CERRADO", newState ? 'success' : 'error'); } catch (error) { showToast("Error", 'error'); } };
-  const handleUpdateConfig = async () => { setLoading(true); try { await setDoc(doc(db, "store_config", "main"), { tableCount: Number(tableCount), accounts: accounts }, { merge: true }); showToast("Guardado", 'success'); } catch (error) { showToast("Error", 'error'); } setLoading(false); };
-  const handleAddAccount = (e) => { e.preventDefault(); if(!newAccount.name || !newAccount.number) return showToast("Faltan datos", "error"); setAccounts([...accounts, { ...newAccount, id: Date.now() }]); setNewAccount({ bank: 'BBVA', name: '', number: '' }); showToast("Cuenta agregada", "info"); };
-  const handleDeleteAccount = (id) => { setAccounts(accounts.filter(acc => acc.id !== id)); };
+  
+  const handleUpdateConfig = async () => { 
+      setLoading(true); 
+      try { 
+          // Guardamos todo excepto las cuentas que ya se guardan individualmente, 
+          // pero por seguridad las mandamos también.
+          await setDoc(doc(db, "store_config", "main"), { tableCount: Number(tableCount), accounts: accounts }, { merge: true }); 
+          showToast("Guardado", 'success'); 
+      } catch (error) { showToast("Error", 'error'); } 
+      setLoading(false); 
+  };
+  
+  // --- FUNCIÓN AGREGAR CUENTA (AHORA GUARDA AL INSTANTE) ---
+  const handleAddAccount = async (e) => { 
+      e.preventDefault(); 
+      if(!newAccount.name || !newAccount.number) return showToast("Faltan datos", "error"); 
+      
+      const updatedAccounts = [...accounts, { ...newAccount, id: Date.now() }];
+      setAccounts(updatedAccounts); // Actualiza visualmente
+      
+      try {
+          await updateDoc(doc(db, "store_config", "main"), { accounts: updatedAccounts });
+          setNewAccount({ bank: 'BBVA', name: '', number: '' }); // Resetea form
+          showToast("Cuenta agregada correctamente", "success"); 
+      } catch (error) {
+          console.error(error);
+          showToast("Error al guardar cuenta", "error");
+      }
+  };
+
+  // --- FUNCIÓN BORRAR CUENTA (AHORA GUARDA AL INSTANTE) ---
+  const handleDeleteAccount = async (id) => { 
+      const updatedAccounts = accounts.filter(acc => acc.id !== id);
+      setAccounts(updatedAccounts); // Borra visualmente
+      
+      try {
+          await updateDoc(doc(db, "store_config", "main"), { accounts: updatedAccounts });
+          showToast("Cuenta eliminada", "info");
+      } catch (error) {
+          console.error(error);
+          showToast("Error al eliminar", "error");
+      }
+  };
+
   const handleCardInput = (e) => { let val = e.target.value.replace(/\D/g, ''); if (val.length > 18) val = val.slice(0, 18); val = val.replace(/(\d{4})(?=\d)/g, '$1 '); setNewAccount({ ...newAccount, number: val }); };
   const ROLES = ['cliente', 'admin', 'hamburguesero', 'productor', 'freidor', 'mesero 1', 'mesero 2', 'repartidor 1', 'repartidor 2'];
 
@@ -243,7 +320,7 @@ export default function AdminDashboard() {
                 <form onSubmit={handleSaveProduct} className="flex flex-col gap-4">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <input placeholder="Nombre" className="p-3 border rounded bg-zinc-700 text-white border-zinc-600 w-full placeholder-gray-400" value={productForm.name} onChange={e => setProductForm({...productForm, name: e.target.value})} required />
-                        <input type="number" placeholder="Precio ($)" className="p-3 border rounded bg-zinc-700 text-white border-zinc-600 w-full placeholder-gray-400" value={productForm.price} onChange={e => setProductForm({...productForm, price: e.target.value})} required />
+                        <input type="number" placeholder="Precio Individual ($)" className="p-3 border rounded bg-zinc-700 text-white border-zinc-600 w-full placeholder-gray-400" value={productForm.price} onChange={e => setProductForm({...productForm, price: e.target.value})} required />
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <select className="p-3 border rounded bg-zinc-700 text-white border-zinc-600 uppercase text-xs w-full" value={productForm.category} onChange={e => setProductForm({...productForm, category: e.target.value})}>{CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}</select>
@@ -254,22 +331,145 @@ export default function AdminDashboard() {
                     {!isNoCustom && (
                         <div className="border rounded-lg p-3 md:p-4 bg-zinc-900/50 border-zinc-600 space-y-4">
                             <h4 className="font-bold text-sm text-white border-b border-zinc-600 pb-2 flex items-center gap-2"><FaCogs/> Personalización</h4>
+                            
+                            {/* --- HAMBURGUESAS --- */}
                             {isBurger && (
                                 <>
-                                    <div className="flex items-center gap-2 mb-2 text-white text-sm"><input type="checkbox" checked={productForm.hasFriesOption} onChange={e => setProductForm({...productForm, hasFriesOption: e.target.checked})} /> Opción Papas</div>
-                                    <div className="bg-zinc-700 p-2 rounded border border-zinc-600">
-                                        <p className="text-xs font-bold mb-1 text-white">Ingredientes Base:</p>
-                                        <div className="flex gap-2 mb-1"><input className="flex-1 p-2 border rounded text-xs w-full bg-zinc-600 text-white border-zinc-500" placeholder="Ej: Cebolla" value={tempStandard} onChange={e=>setTempStandard(e.target.value)}/><button type="button" onClick={addStandardIngredient} className="bg-blue-600 text-white px-3 rounded">+</button></div>
-                                        <div className="flex flex-wrap gap-1 mb-2">{productForm.standardIngredients?.map((item,i)=><span key={i} className="text-xs bg-zinc-500 text-white px-2 py-1 rounded flex items-center gap-1">{item}<FaTimes onClick={()=>removeFromList('standardIngredients',i)} className="cursor-pointer"/></span>)}</div>
-                                        <div className="flex flex-col md:flex-row items-start md:items-center gap-2 text-xs text-gray-300"><span className="">Precio Extra: $</span><input type="number" className="w-20 p-2 border rounded bg-zinc-600 text-white border-zinc-500" value={productForm.standardIngredientsPrice} onChange={e=>setProductForm({...productForm, standardIngredientsPrice:Number(e.target.value)})}/></div>
+                                    <div className="flex items-center gap-2 mb-2 text-white text-sm bg-zinc-800 p-2 rounded border border-zinc-600">
+                                        <input type="checkbox" checked={productForm.allowMeatSwap} onChange={e => setProductForm({...productForm, allowMeatSwap: e.target.checked})} className="w-4 h-4 accent-yellow-500" /> 
+                                        <span>¿Permitir elegir tipo de carne? (Pechuga/Tiras)</span>
                                     </div>
-                                    <div className="bg-zinc-700 p-2 rounded border border-zinc-600"><p className="text-xs font-bold mb-1 text-white">Salsas Bañar:</p><div className="flex gap-2 mb-1"><input className="flex-1 p-2 border rounded text-xs w-full bg-zinc-600 text-white border-zinc-500" placeholder="Ej: BBQ" value={tempSauce} onChange={e=>setTempSauce(e.target.value)}/><button type="button" onClick={addSauceOption} className="bg-yellow-600 text-white px-3 rounded">+</button></div><div className="flex flex-wrap gap-1">{productForm.sauceOptions?.map((item,i)=><span key={i} className="text-xs bg-yellow-900/50 text-yellow-200 border border-yellow-700 px-2 py-1 rounded flex items-center gap-1">{item}<FaTimes onClick={()=>removeFromList('sauceOptions',i)} className="cursor-pointer"/></span>)}</div></div>
+                                    <div className="flex items-center gap-2 mb-2 text-white text-sm">
+                                        <input type="checkbox" checked={productForm.hasFriesOption} onChange={e => setProductForm({...productForm, hasFriesOption: e.target.checked})} /> 
+                                        Opción Papas
+                                    </div>
+                                    <div className="flex items-center gap-2 mb-2 text-white text-sm bg-zinc-800 p-2 rounded border border-zinc-600">
+                                        <input type="checkbox" checked={productForm.allowExtraSnacks} onChange={e => setProductForm({...productForm, allowExtraSnacks: e.target.checked})} className="w-4 h-4 accent-yellow-500" /> 
+                                        <span>¿Permitir agregar Piezas Extra? (Alitas/Boneless)</span>
+                                    </div>
                                 </>
                             )}
-                            {(isWingsType || isPastaProtein) && (
-                                <div className="grid grid-cols-1 gap-2 text-xs text-gray-300">
-                                    <div><p>Precio Pieza Extra:</p><input type="number" className="w-full p-2 border rounded bg-zinc-600 text-white border-zinc-500" value={productForm.pricePerExtraPiece} onChange={e=>setProductForm({...productForm, pricePerExtraPiece:Number(e.target.value)})}/></div>
-                                    <div><p>Precio Botecito Salsa:</p><input type="number" className="w-full p-2 border rounded bg-zinc-600 text-white border-zinc-500" value={productForm.extraSaucePotPrice} onChange={e=>setProductForm({...productForm, extraSaucePotPrice:Number(e.target.value)})}/></div>
+
+                            {/* --- PERROS CALIENTES --- */}
+                            {isHotDog && (
+                                <div className="bg-orange-900/30 p-3 rounded border border-orange-700/50 mb-2">
+                                    <div className="flex items-center gap-2 mb-2 text-white text-sm font-bold">
+                                        <input type="checkbox" checked={productForm.hasComboOption} onChange={e => setProductForm({...productForm, hasComboOption: e.target.checked})} /> 
+                                        Habilitar Opción de Combo
+                                    </div>
+                                    <p className="text-xs text-orange-200">
+                                        ℹ️ Precio Combo: <span className="font-bold text-white text-sm">${(Number(productForm.price) * 2) + 10}</span>
+                                    </p>
+                                </div>
+                            )}
+
+                            {/* --- INGREDIENTES BASE (SOLO Hamburguesas, Box, Mini Box) --- */}
+                            {needsStandardIngredients && (
+                                <div className="bg-zinc-700 p-2 rounded border border-zinc-600">
+                                    <p className="text-xs font-bold mb-1 text-white">Ingredientes Base (Ej: Cebolla, Tomate):</p>
+                                    <div className="flex gap-2 mb-1"><input className="flex-1 p-2 border rounded text-xs w-full bg-zinc-600 text-white border-zinc-500" placeholder="Ej: Cebolla" value={tempStandard} onChange={e=>setTempStandard(e.target.value)}/><button type="button" onClick={addStandardIngredient} className="bg-blue-600 text-white px-3 rounded">+</button></div>
+                                    <div className="flex flex-wrap gap-1 mb-2">{productForm.standardIngredients?.map((item,i)=><span key={i} className="text-xs bg-zinc-500 text-white px-2 py-1 rounded flex items-center gap-1">{item}<FaTimes onClick={()=>removeFromList('standardIngredients',i)} className="cursor-pointer"/></span>)}</div>
+                                    <div className="flex flex-col md:flex-row items-start md:items-center gap-2 text-xs text-gray-300"><span className="">Precio Ingrediente Extra: $</span><input type="number" className="w-20 p-2 border rounded bg-zinc-600 text-white border-zinc-500" value={productForm.standardIngredientsPrice} onChange={e=>setProductForm({...productForm, standardIngredientsPrice:Number(e.target.value)})}/></div>
+                                </div>
+                            )}
+
+                            {/* --- OPCIONES ESPECÍFICAS DE BEBIDAS --- */}
+                            
+                            {/* FRAPPE: Tapioca */}
+                            {isFrappe && (
+                                <div className="bg-purple-900/30 p-3 rounded border border-purple-700/50 mt-2">
+                                    <p className="text-xs font-bold text-purple-200 mb-2 flex items-center gap-1"><FaGlassWhiskey/> Configuración Frappe</p>
+                                    <div className="flex items-center gap-2 mb-2 text-white text-sm">
+                                        <input type="checkbox" checked={productForm.hasTapiocaOption} onChange={e => setProductForm({...productForm, hasTapiocaOption: e.target.checked})} /> 
+                                        Habilitar Tapioca
+                                    </div>
+                                    {productForm.hasTapiocaOption && (
+                                        <div className="flex items-center gap-2 text-xs text-gray-300">
+                                            <span>Precio Extra Tapioca: $</span>
+                                            <input type="number" className="w-20 p-1 rounded bg-zinc-700 text-white border border-zinc-600" value={productForm.tapiocaPrice} onChange={e=>setProductForm({...productForm, tapiocaPrice:Number(e.target.value)})}/>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* AGUAS: Hielo */}
+                            {isAguas && (
+                                <div className="bg-blue-900/30 p-3 rounded border border-blue-700/50 mt-2">
+                                    <p className="text-xs font-bold text-blue-200 mb-2 flex items-center gap-1"><FaSnowflake/> Configuración Agua</p>
+                                    <div className="flex items-center gap-2 text-white text-sm">
+                                        <input type="checkbox" checked={productForm.hasIceOption} onChange={e => setProductForm({...productForm, hasIceOption: e.target.checked})} /> 
+                                        Habilitar elección de Hielo (Mucho/Poco/Sin)
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* EMBOTELLADOS: Temperatura */}
+                            {isEmbotellado && (
+                                <div className="bg-cyan-900/30 p-3 rounded border border-cyan-700/50 mt-2">
+                                    <p className="text-xs font-bold text-cyan-200 mb-2 flex items-center gap-1"><FaThermometerHalf/> Configuración Botella</p>
+                                    <div className="flex items-center gap-2 text-white text-sm">
+                                        <input type="checkbox" checked={productForm.hasTempOption} onChange={e => setProductForm({...productForm, hasTempOption: e.target.checked})} /> 
+                                        Habilitar elección Temperatura (Al Tiempo/Helada)
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* --- SALSAS BAÑAR (Sabores del producto) --- */}
+                            {needsCoatingSauces && (
+                                <div className="bg-zinc-700 p-2 rounded border border-zinc-600 mt-2">
+                                    <p className="text-xs font-bold mb-1 text-white">Salsas para Bañar (Sabores):</p>
+                                    <div className="flex gap-2 mb-1">
+                                        <input className="flex-1 p-2 border rounded text-xs w-full bg-zinc-600 text-white border-zinc-500" placeholder="Ej: BBQ, Mango Habanero" value={tempSauce} onChange={e=>setTempSauce(e.target.value)}/>
+                                        <button type="button" onClick={addSauceOption} className="bg-yellow-600 text-white px-3 rounded">+</button>
+                                    </div>
+                                    <div className="flex flex-wrap gap-1">
+                                        {productForm.sauceOptions?.map((item,i)=>(
+                                            <span key={i} className="text-xs bg-yellow-900/50 text-yellow-200 border border-yellow-700 px-2 py-1 rounded flex items-center gap-1">
+                                                {item}<FaTimes onClick={()=>removeFromList('sauceOptions',i)} className="cursor-pointer"/>
+                                            </span>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* --- SALSAS EXTRAS (Botecitos/Dips) --- */}
+                            {needsExtraSaucesConfig && (
+                                <div className="bg-zinc-800 p-2 rounded border border-zinc-600 mt-3 relative overflow-hidden">
+                                    <div className="absolute top-0 right-0 bg-green-700 text-white text-[9px] px-2 py-1 rounded-bl font-bold">EXTRAS</div>
+                                    <p className="text-xs font-bold mb-1 text-white">🥣 Salsas Extras (Botecitos):</p>
+                                    
+                                    <div className="flex gap-2 mb-2 items-end">
+                                        <div className="flex-1">
+                                            <label className="text-[10px] text-gray-400">Nombres Disponibles:</label>
+                                            <div className="flex gap-1">
+                                                <input className="flex-1 p-2 border rounded text-xs bg-zinc-700 text-white border-zinc-500" placeholder="Ej: Ranch, Chipotle" value={tempExtraSauce} onChange={e=>setTempExtraSauce(e.target.value)}/>
+                                                <button type="button" onClick={addExtraSauceName} className="bg-green-600 text-white px-3 rounded">+</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="flex flex-wrap gap-1 mb-2">
+                                        {productForm.extraSauceNames?.map((item,i)=>(
+                                            <span key={i} className="text-xs bg-green-900/50 text-green-200 border border-green-700 px-2 py-1 rounded flex items-center gap-1">
+                                                {item}<FaTimes onClick={()=>removeFromList('extraSauceNames',i)} className="cursor-pointer"/>
+                                            </span>
+                                        ))}
+                                    </div>
+
+                                    <div className="flex items-center gap-2 text-xs text-gray-300 border-t border-zinc-600 pt-2">
+                                        <span>Precio Botecito Extra: $</span>
+                                        <input type="number" className="w-20 p-2 border rounded bg-zinc-700 text-white border-zinc-500 font-bold text-center" value={productForm.extraSaucePotPrice} onChange={e=>setProductForm({...productForm, extraSaucePotPrice:Number(e.target.value)})}/>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* --- PIEZAS EXTRAS --- */}
+                            {needsPieceConfig && (
+                                <div className="grid grid-cols-1 gap-2 text-xs text-gray-300 mt-2">
+                                    <div className="flex items-center gap-2">
+                                        <span>Precio Pieza Extra (Alita/Tira): $</span>
+                                        <input type="number" className="flex-1 p-2 border rounded bg-zinc-600 text-white border-zinc-500" value={productForm.pricePerExtraPiece} onChange={e=>setProductForm({...productForm, pricePerExtraPiece:Number(e.target.value)})}/>
+                                    </div>
                                 </div>
                             )}
                         </div>
@@ -333,7 +533,6 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* --- NUEVA PESTAÑA: BUZÓN DE SOPORTE --- */}
       {activeTab === 'buzon' && (
           <div className="bg-zinc-800 p-4 md:p-6 rounded-lg shadow-md border border-zinc-700">
               <h2 className="font-bold mb-4 text-white flex items-center gap-2"><FaEnvelope/> Buzón de Quejas y Soporte</h2>
@@ -381,7 +580,25 @@ export default function AdminDashboard() {
               <div className="bg-zinc-800 p-4 md:p-6 rounded-lg shadow-md border border-zinc-700">
                   <h2 className="font-bold mb-4 text-white">⚙️ Mesas & Cuentas</h2>
                   <div className="mb-4"><label className="text-xs block mb-1 text-gray-300">Cantidad Mesas:</label><input type="number" value={tableCount} onChange={(e) => setTableCount(e.target.value)} className="border p-2 rounded w-full md:w-20 text-center bg-zinc-700 text-white border-zinc-600" /></div>
-                  <div className="border-t border-zinc-700 pt-4"><form onSubmit={handleAddAccount} className="flex flex-col gap-2 mb-4"><div className="flex gap-2"><input placeholder="Banco" value={newAccount.bank} onChange={e=>setNewAccount({...newAccount, bank: e.target.value})} className="border p-2 rounded w-1/3 bg-zinc-700 text-white border-zinc-600 text-xs"/><input placeholder="Titular" value={newAccount.name} onChange={e=>setNewAccount({...newAccount, name: e.target.value})} className="border p-2 rounded flex-1 bg-zinc-700 text-white border-zinc-600 text-xs"/></div><div className="flex gap-2"><input placeholder="Número" value={newAccount.number} onChange={handleCardInput} className="border p-2 rounded flex-1 bg-zinc-700 text-white border-zinc-600 text-xs"/><button className="bg-blue-600 text-white px-3 rounded">+</button></div></form><div className="space-y-2">{accounts.map(acc => <div key={acc.id} className="flex justify-between p-2 border rounded border-zinc-600 text-gray-300 text-xs"><span>{acc.bank} - {acc.number}</span><FaTrash className="cursor-pointer text-red-400" onClick={()=>handleDeleteAccount(acc.id)}/></div>)}</div></div>
+                  <div className="border-t border-zinc-700 pt-4">
+                      <form onSubmit={handleAddAccount} className="flex flex-col gap-2 mb-4">
+                          <div className="flex gap-2">
+                              {/* --- SELECTOR DE BANCOS CORREGIDO --- */}
+                              <select 
+                                  value={newAccount.bank} 
+                                  onChange={e=>setNewAccount({...newAccount, bank: e.target.value})} 
+                                  className="border p-2 rounded w-1/3 bg-zinc-700 text-white border-zinc-600 text-xs focus:ring-1 focus:ring-yellow-500 outline-none"
+                              >
+                                  {BANKS.map(b => <option key={b} value={b}>{b}</option>)}
+                              </select>
+                              <input placeholder="Titular" value={newAccount.name} onChange={e=>setNewAccount({...newAccount, name: e.target.value})} className="border p-2 rounded flex-1 bg-zinc-700 text-white border-zinc-600 text-xs"/>
+                          </div>
+                          <div className="flex gap-2">
+                              <input placeholder="Número" value={newAccount.number} onChange={handleCardInput} className="border p-2 rounded flex-1 bg-zinc-700 text-white border-zinc-600 text-xs"/><button className="bg-blue-600 text-white px-3 rounded">+</button>
+                          </div>
+                      </form>
+                      <div className="space-y-2">{accounts.map(acc => <div key={acc.id} className="flex justify-between p-2 border rounded border-zinc-600 text-gray-300 text-xs"><span><FaCreditCard className="inline mr-1 text-yellow-500"/> {acc.bank} - {acc.number} <span className="text-gray-500">({acc.name})</span></span><FaTrash className="cursor-pointer text-red-400" onClick={()=>handleDeleteAccount(acc.id)}/></div>)}</div>
+                  </div>
               </div>
 
               <div className="bg-zinc-800 p-4 md:p-6 rounded-lg shadow-md border border-zinc-700 col-span-1 md:col-span-2">
