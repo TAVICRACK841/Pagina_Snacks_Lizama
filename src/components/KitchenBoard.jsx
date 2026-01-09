@@ -3,7 +3,7 @@ import { db, auth } from '../firebase/config';
 import { collection, query, onSnapshot, doc, updateDoc, getDoc } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import { showToast } from '../stores/toastStore';
-import { FaEye, FaBan, FaCheck, FaClipboardList, FaClock, FaCheckSquare, FaRegSquare, FaMotorcycle, FaUtensils } from 'react-icons/fa';
+import { FaEye, FaBan, FaCheck, FaClipboardList, FaClock, FaCheckSquare, FaRegSquare, FaMotorcycle, FaUtensils, FaWalking } from 'react-icons/fa';
 
 export default function KitchenBoard() {
   const [orders, setOrders] = useState([]);
@@ -29,17 +29,13 @@ export default function KitchenBoard() {
       const ordersList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       
       // FILTRO: Solo mostramos lo que la cocina debe trabajar
-      // Ocultamos 'completado', 'cancelado', 'en_camino' y 'entregado'.
-      // La cocina ve 'pendiente', 'preparando' y 'listo' (para saber que ya acabaron y esperan recolecta)
       const activeOrders = ordersList.filter(o => 
           ['pendiente', 'preparando', 'listo'].includes(o.status)
       );
       
       activeOrders.sort((a, b) => {
-          // Prioridad a 'listo' para que se vayan abajo o arriba (decisión visual, aquí los pongo al final)
           if (a.status === 'listo' && b.status !== 'listo') return 1;
           if (a.status !== 'listo' && b.status === 'listo') return -1;
-
           if (a.scheduledTime && !b.scheduledTime) return -1;
           if (!a.scheduledTime && b.scheduledTime) return 1;
           
@@ -64,11 +60,10 @@ export default function KitchenBoard() {
 
       const allDone = updatedItems.every(item => item.completed === true);
       
-      // CAMBIO CLAVE: Si todo está checkeado, pasa a 'listo' (NO a en_camino)
       let newStatus = order.status;
       if (allDone) {
           newStatus = 'listo'; 
-          showToast('✅ ¡Orden Lista! Aparecerá en Repartos/Mesas.', 'success');
+          showToast('✅ ¡Orden Completa!', 'success');
       } else if (order.status === 'pendiente') {
           newStatus = 'preparando'; 
       }
@@ -91,7 +86,9 @@ export default function KitchenBoard() {
       await updateDoc(doc(db, "orders", orderId), { status: newStatus });
       
       if(newStatus === 'listo') {
-          showToast('🔔 ¡Notificando a Repartidores/Meseros!', 'success');
+          showToast('🔔 ¡Orden Lista!', 'success');
+      } else if (newStatus === 'entregado') {
+          showToast('👋 ¡Pedido Entregado al Cliente!', 'success');
       } else {
           showToast(`Estado actualizado: ${newStatus.toUpperCase()}`, 'success');
       }
@@ -131,6 +128,9 @@ export default function KitchenBoard() {
       </div>
 
       {orders.map((order) => {
+        // DETECTAR SI ES PARA LLEVAR
+        const isTakeOut = order.type === 'llevar';
+
         const visibleItemsWithIndex = order.items
             .map((item, originalIndex) => ({ ...item, originalIndex }))
             .filter(item => shouldShowItem(item.category || item.name));
@@ -141,7 +141,7 @@ export default function KitchenBoard() {
           <div key={order.id} className={`bg-white dark:bg-gray-800 rounded-xl shadow-md border-l-8 p-4 md:p-5 relative transition-all hover:shadow-xl flex flex-col justify-between animate-fade-in ${
             order.status === 'pendiente' ? 'border-red-500 dark:border-red-600' : 
             order.status === 'preparando' ? 'border-yellow-400 dark:border-yellow-500' : 
-            'border-green-500 dark:border-green-500 opacity-70' // Opacidad si ya está listo
+            'border-green-500 dark:border-green-500 opacity-90'
           }`}>
             
             {order.status === 'listo' && (
@@ -219,20 +219,33 @@ export default function KitchenBoard() {
                     {/* BOTÓN PRINCIPAL DE ESTADO */}
                     <button
                       onClick={() => {
-                          // CAMBIO CLAVE AQUÍ: De 'preparando' pasa a 'listo'
-                          const nextStatus = order.status === 'pendiente' ? 'preparando' : 'listo';
-                          updateStatus(order.id, nextStatus);
+                          let nextStatus = '';
+                          
+                          if (order.status === 'pendiente') {
+                              nextStatus = 'preparando';
+                          } else if (order.status === 'preparando') {
+                              // SI ES PARA LLEVAR: Finalizamos directo (pasa a entregado/historial)
+                              // SI NO: Pasa a 'listo' (espera repartidor/mesero)
+                              nextStatus = isTakeOut ? 'entregado' : 'listo';
+                          } else if (order.status === 'listo') {
+                              // SI YA ESTABA LISTO Y ES PARA LLEVAR: Permitimos entregarlo
+                              nextStatus = 'entregado';
+                          }
+
+                          if (nextStatus) updateStatus(order.id, nextStatus);
                       }}
-                      disabled={order.status === 'listo'}
+                      // Deshabilitamos SOLO si está listo y NO es para llevar
+                      disabled={order.status === 'listo' && !isTakeOut}
                       className={`flex-1 py-3 rounded-xl font-bold text-white shadow-md active:scale-95 transition-all flex items-center justify-center gap-2 text-sm md:text-base ${
                           order.status === 'pendiente' ? 'bg-red-600 hover:bg-red-700 animate-pulse' :
-                          order.status === 'preparando' ? 'bg-green-600 hover:bg-green-700' :
-                          'bg-gray-500 cursor-not-allowed' // Si ya está listo, se desactiva
+                          order.status === 'preparando' ? (isTakeOut ? 'bg-green-600 hover:bg-green-700' : 'bg-yellow-500 hover:bg-yellow-600') :
+                          isTakeOut ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-500 cursor-not-allowed'
                       }`}
                     >
+                      {/* TEXTO DINÁMICO DEL BOTÓN */}
                       {order.status === 'pendiente' ? '🔥 Empezar' : 
-                       order.status === 'preparando' ? '✅ Finalizar (Avisar Reparto)' : 
-                       '👍 Orden Lista'}
+                       order.status === 'preparando' ? (isTakeOut ? '👋 Entregar a Cliente' : '✅ Finalizar (Avisar Reparto)') : 
+                       (isTakeOut ? '👋 Finalizar Entrega' : '👍 Orden Lista')}
                     </button>
                 </div>
             </div>
