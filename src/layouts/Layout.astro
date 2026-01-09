@@ -3,43 +3,111 @@ import Navbar from '../components/Navbar';
 import Cart from '../components/Cart';
 import StoreGuard from '../components/StoreGuard';
 import ToastNotification from '../components/ToastNotification';
-// 1. IMPORTAMOS EL NUEVO BOTÓN FLOTANTE
 import CartFloatingButton from '../components/CartFloatingButton';
+import SupportButton from '../components/SupportButton'; // <--- IMPORTACIÓN NUEVA
 ---
 
 <!doctype html>
-<html lang="es">
+<html lang="es" class="dark">
     <head>
         <meta charset="UTF-8" />
         <meta name="description" content="Snacks Lizama App" />
-        <meta name="viewport" content="width=device-width" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+        
+        {/* Fuente Nunito */}
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+
         <title>Snacks Lizama</title>
-        
-        <script is:inline>
-            if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-                document.documentElement.classList.add('dark');
-            } else {
-                document.documentElement.classList.remove('dark');
-            }
-        </script>
     </head>
-    <body class="bg-gray-100 dark:bg-gray-900 min-h-screen transition-colors duration-300">
+    
+    {/* Body Base: Siempre Gris Oscuro y Amarillo */}
+    <body class="bg-zinc-950 text-gray-100 min-h-screen transition-colors duration-300 font-['Nunito'] text-sm md:text-base relative overflow-x-hidden">
         
+        {/* --- CONTENEDOR DE EFECTOS (Nieve/Calabazas/Coronas) --- */}
+        <div id="festive-container" class="fixed inset-0 z-50 pointer-events-none overflow-hidden"></div>
+
         <ToastNotification client:load />
 
         <StoreGuard client:load>
             <Navbar client:load />
-            
-            {/* Carrito Lateral (Oculto hasta que se abre) */}
             <Cart client:load />
-
-            {/* 2. AQUÍ AGREGAMOS EL BOTÓN FLOTANTE (Visible siempre) */}
-            <CartFloatingButton client:load />
             
-            <main class="container mx-auto p-4">
+            {/* BOTONES FLOTANTES */}
+            <CartFloatingButton client:load />
+            <SupportButton client:load /> {/* <--- COMPONENTE AÑADIDO */}
+            
+            <main class="container mx-auto p-4 pb-24 relative z-10">
                 <slot />
             </main>
         </StoreGuard>
+
+        {/* --- SCRIPT DE EFECTOS --- */}
+        <script>
+            import { doc, onSnapshot } from "firebase/firestore";
+            import { db } from "../firebase/config";
+
+            const container = document.getElementById('festive-container');
+            let currentEffectInterval;
+
+            const createParticle = (symbol) => {
+                const particle = document.createElement('div');
+                particle.innerText = symbol;
+                particle.style.position = 'absolute';
+                particle.style.top = '-50px';
+                // Posición horizontal aleatoria
+                particle.style.left = Math.random() * 100 + 'vw';
+                // Velocidad y rotación aleatoria
+                particle.style.animation = `fall ${Math.random() * 3 + 3}s linear infinite`;
+                particle.style.fontSize = Math.random() * 20 + 10 + 'px'; // Tamaño variable
+                particle.style.opacity = (Math.random() * 0.6 + 0.4).toString();
+                particle.style.textShadow = '0 0 5px rgba(255,255,255,0.3)';
+                
+                container.appendChild(particle);
+
+                // Eliminar después de caer para no saturar la memoria
+                setTimeout(() => { particle.remove(); }, 6000);
+            };
+
+            const startEffect = (theme) => {
+                if (currentEffectInterval) clearInterval(currentEffectInterval);
+                container.innerHTML = ''; 
+
+                let symbol = '';
+                if (theme === 'navidad') symbol = '❄️';
+                else if (theme === 'halloween') symbol = '🎃'; 
+                else if (theme === 'reyes') symbol = '👑';
+                else return; // Si es normal, no hace nada
+
+                // Crear partícula cada 300ms
+                currentEffectInterval = setInterval(() => createParticle(symbol), 300);
+            };
+
+            onSnapshot(doc(db, "store_config", "main"), (docSnap) => {
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    if (data.theme) startEffect(data.theme);
+                }
+            });
+        </script>
+
+        <style is:global>
+            body { font-family: 'Nunito', sans-serif; }
+
+            /* Scrollbar Amarillo */
+            ::-webkit-scrollbar { width: 8px; height: 8px; }
+            ::-webkit-scrollbar-track { background: #18181b; }
+            ::-webkit-scrollbar-thumb { background: #eab308; border-radius: 4px; }
+            ::-webkit-scrollbar-thumb:hover { background: #ca8a04; }
+            ::selection { background-color: #facc15; color: black; }
+
+            /* Animación de caída */
+            @keyframes fall {
+                0% { transform: translateY(-50px) rotate(0deg); }
+                100% { transform: translateY(110vh) rotate(360deg); }
+            }
+        </style>
     </body>
 </html>

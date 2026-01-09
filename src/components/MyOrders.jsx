@@ -8,7 +8,7 @@ export default function MyOrders() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState(null);
-  const [selectedProof, setSelectedProof] = useState(null); // Modal foto
+  const [selectedProof, setSelectedProof] = useState(null);
 
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
@@ -38,7 +38,6 @@ export default function MyOrders() {
     return () => unsubscribeAuth();
   }, []);
 
-  // Función para que el cliente cancele
   const cancelOrder = async (orderId) => {
       if(!confirm("¿Seguro que quieres cancelar tu pedido?")) return;
       try {
@@ -54,17 +53,16 @@ export default function MyOrders() {
   if (!user) return (
     <div className="p-10 text-center dark:text-white">
       <p>Inicia sesión para ver tus pedidos.</p>
-      <a href="/profile" className="text-orange-600 font-bold underline">Ir a Perfil</a>
+      <a href="/profile" className="text-yellow-500 font-bold underline">Ir a Perfil</a>
     </div>
   );
 
   return (
     <div className="max-w-4xl mx-auto p-4 mb-20 relative">
       
-      {/* MODAL FOTO COMPROBANTE */}
       {selectedProof && (
           <div className="fixed inset-0 bg-black/90 z-[100] flex items-center justify-center p-4" onClick={() => setSelectedProof(null)}>
-              <div className="relative max-w-lg w-full bg-white dark:bg-gray-800 rounded-lg p-2">
+              <div className="relative max-w-lg w-full bg-white dark:bg-zinc-800 rounded-lg p-2">
                 <img src={selectedProof} alt="Comprobante" className="w-full h-auto rounded" />
               </div>
           </div>
@@ -73,20 +71,20 @@ export default function MyOrders() {
       <h1 className="text-3xl font-bold mb-6 text-gray-800 dark:text-white">📦 Mis Pedidos</h1>
 
       {orders.length === 0 ? (
-        <div className="text-center py-10 bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-100 dark:border-gray-700 transition-colors">
+        <div className="text-center py-10 bg-white dark:bg-zinc-800 rounded-lg shadow border border-gray-100 dark:border-zinc-700 transition-colors">
           <div className="text-6xl mb-4">🍽️</div>
           <p className="text-gray-500 dark:text-gray-400 font-bold">Aún no has realizado ningún pedido.</p>
-          <a href="/menu" className="mt-4 inline-block bg-orange-600 text-white px-6 py-2 rounded-full font-bold hover:bg-orange-700 transition">
+          {/* Botón amarillo si no hay pedidos */}
+          <a href="/menu" className="mt-4 inline-block bg-yellow-500 text-white px-6 py-2 rounded-full font-bold hover:bg-yellow-600 transition shadow-lg shadow-yellow-500/30">
             Ir al Menú
           </a>
         </div>
       ) : (
         <div className="space-y-6">
           {orders.map((order) => (
-            <div key={order.id} className="bg-white dark:bg-gray-800 rounded-xl shadow-md overflow-hidden border border-gray-100 dark:border-gray-700 hover:shadow-lg transition-all">
+            <div key={order.id} className="bg-white dark:bg-zinc-800 rounded-xl shadow-md overflow-hidden border border-gray-100 dark:border-zinc-700 hover:shadow-lg transition-all">
               
-              {/* Encabezado */}
-              <div className="bg-gray-50 dark:bg-gray-700/50 p-4 flex flex-wrap justify-between items-center border-b dark:border-gray-700 gap-2">
+              <div className="bg-gray-50 dark:bg-zinc-700/50 p-4 flex flex-wrap justify-between items-center border-b dark:border-zinc-600 gap-2">
                 <div>
                   <p className="text-xs text-gray-500 dark:text-gray-400 font-bold uppercase">Fecha</p>
                   <p className="text-sm font-medium dark:text-gray-200">
@@ -105,22 +103,20 @@ export default function MyOrders() {
                 </div>
               </div>
 
-              {/* Contenido */}
               <div className="p-4">
                 <ul className="space-y-2 mb-4">
                   {order.items.map((item, index) => (
-                    <li key={index} className="flex justify-between text-sm text-gray-700 dark:text-gray-300 border-b border-dashed dark:border-gray-700 pb-2 last:border-0">
+                    <li key={index} className="flex justify-between text-sm text-gray-700 dark:text-gray-300 border-b border-dashed dark:border-zinc-700 pb-2 last:border-0">
                       <span className="font-medium">{item.quantity}x {item.name}</span>
                       <span className="font-bold text-gray-500 dark:text-gray-400">${item.price * item.quantity}</span>
                     </li>
                   ))}
                 </ul>
                 
-                <div className="border-t dark:border-gray-700 pt-3 flex flex-wrap justify-between items-end gap-4">
+                <div className="border-t dark:border-zinc-700 pt-3 flex flex-wrap justify-between items-end gap-4">
                   <div className="text-xs text-gray-500 dark:text-gray-400 space-y-1">
                     <p>Tipo: <span className="font-bold capitalize text-gray-700 dark:text-gray-300">{order.type}</span></p>
                     <p>Pago: <span className="font-bold capitalize text-gray-700 dark:text-gray-300">{order.paymentMethod}</span></p>
-                    {/* Botón ver comprobante si existe */}
                     {order.proofOfPayment && (
                         <button onClick={() => setSelectedProof(order.proofOfPayment)} className="text-blue-500 hover:underline font-bold mt-1 block">
                             📄 Ver mi comprobante
@@ -131,10 +127,10 @@ export default function MyOrders() {
                   <div className="flex flex-col items-end gap-2">
                     <div className="text-right">
                         <span className="text-xs text-gray-400 font-bold uppercase">Total</span>
-                        <p className="text-2xl font-extrabold text-orange-600 dark:text-orange-500">${order.total}</p>
+                        {/* CAMBIO: PRECIO VERDE */}
+                        <p className="text-2xl font-extrabold text-green-600 dark:text-green-400">${order.total}</p>
                     </div>
                     
-                    {/* BOTÓN CANCELAR (Solo si está pendiente) */}
                     {order.status === 'pendiente' && (
                         <button 
                             onClick={() => cancelOrder(order.id)}
