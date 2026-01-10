@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { auth, db } from '../firebase/config';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { doc, onSnapshot, getDoc, setDoc } from 'firebase/firestore';
-import { FaSignOutAlt, FaDownload, FaShare, FaPlusSquare, FaTimes } from 'react-icons/fa'; // <--- ICONOS NUEVOS AGREGADOS
+import { FaSignOutAlt, FaDownload, FaShare, FaPlusSquare, FaTimes, FaEllipsisV, FaDesktop } from 'react-icons/fa';
 
 export default function Navbar() {
   const [user, setUser] = useState(null);
@@ -11,10 +11,10 @@ export default function Navbar() {
   const [storeLogo, setStoreLogo] = useState(null);
   const [currentTheme, setCurrentTheme] = useState('normal');
 
-  // --- ESTADOS PARA PWA (Instalación) ---
+  // --- ESTADOS PARA PWA ---
   const [deferredPrompt, setDeferredPrompt] = useState(null);
   const [isIOS, setIsIOS] = useState(false);
-  const [showIOSInstructions, setShowIOSInstructions] = useState(false);
+  const [showInstallModal, setShowInstallModal] = useState(false); // Un solo modal para todo
   const [isStandalone, setIsStandalone] = useState(false);
 
   useEffect(() => {
@@ -57,20 +57,18 @@ export default function Navbar() {
       }
     });
 
-    // 3. Lógica PWA (Instalación)
-    // Detectar si ya está instalada (Standalone)
+    // 3. Lógica PWA
     if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true) {
         setIsStandalone(true);
     }
 
-    // Detectar evento en Android/PC
     const handleBeforeInstallPrompt = (e) => {
         e.preventDefault();
         setDeferredPrompt(e);
+        console.log("Evento de instalación capturado");
     };
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
 
-    // Detectar si es iOS (iPhone/iPad)
     const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
     setIsIOS(ios);
 
@@ -86,19 +84,20 @@ export default function Navbar() {
     window.location.href = '/';
   };
 
-  // Función del botón "Instalar App"
+  // --- LÓGICA DEL BOTÓN ESTÁTICO ---
   const handleInstallClick = async () => {
-    if (isIOS) {
-        // En iOS mostramos las instrucciones manuales
-        setShowIOSInstructions(true);
-    } else if (deferredPrompt) {
-        // En Android/PC lanzamos el instalador nativo
+    // Caso 1: Android/PC detectó instalación automática
+    if (deferredPrompt) {
         deferredPrompt.prompt();
         const { outcome } = await deferredPrompt.userChoice;
         if (outcome === 'accepted') {
             setDeferredPrompt(null);
         }
+        return;
     }
+    
+    // Caso 2: Es iOS o el automático falló (mostramos instrucciones manuales)
+    setShowInstallModal(true);
   };
 
   const getFestiveIcon = () => {
@@ -133,23 +132,13 @@ export default function Navbar() {
 
             <div className="flex items-center gap-4">
                 
-                {/* --- BOTÓN DE INSTALAR APP (Solo si no está instalada) --- */}
-                {!isStandalone && (deferredPrompt || isIOS) && (
+                {/* --- BOTÓN DE INSTALAR APP (SIEMPRE VISIBLE SI NO ESTÁ INSTALADA) --- */}
+                {!isStandalone && (
                     <button 
                         onClick={handleInstallClick}
-                        className="hidden md:flex bg-yellow-500 hover:bg-yellow-400 text-black px-3 py-1.5 rounded-lg font-bold text-xs items-center gap-2 transition animate-pulse shadow-lg"
+                        className="bg-yellow-500 hover:bg-yellow-400 text-black px-3 py-1.5 rounded-lg font-bold text-xs flex items-center gap-2 transition animate-pulse shadow-lg"
                     >
-                        <FaDownload /> App
-                    </button>
-                )}
-
-                {/* Versión móvil del botón de instalar (ícono solo) */}
-                {!isStandalone && (deferredPrompt || isIOS) && (
-                    <button 
-                        onClick={handleInstallClick}
-                        className="md:hidden bg-yellow-500 text-black p-2 rounded-full font-bold shadow-lg animate-pulse"
-                    >
-                        <FaDownload size={14} />
+                        <FaDownload /> <span className="hidden md:inline">Instalar App</span>
                     </button>
                 )}
                 {/* -------------------------------------------------------- */}
@@ -177,7 +166,6 @@ export default function Navbar() {
                             <a href="/kitchen" className="block px-4 py-3 hover:bg-zinc-700 transition font-medium text-yellow-400 font-bold">👨‍🍳 Cocina</a>
                         )}
 
-                        {/* PRODUCCIÓN */}
                         {['admin', 'freidor', 'productor'].includes(role) && (
                             <a href="/production" className="block px-4 py-3 hover:bg-zinc-700 transition font-medium text-orange-400 font-bold">🔥 Producción</a>
                         )}
@@ -215,11 +203,11 @@ export default function Navbar() {
         </div>
         </nav>
 
-        {/* --- MODAL INSTRUCCIONES PARA iOS (IPHONE/IPAD) --- */}
-        {showIOSInstructions && (
+        {/* --- MODAL INSTRUCCIONES MANUALES --- */}
+        {showInstallModal && (
             <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in">
                 <div className="bg-zinc-900 border border-zinc-700 p-6 rounded-2xl max-w-sm w-full relative shadow-2xl">
-                    <button onClick={() => setShowIOSInstructions(false)} className="absolute top-3 right-3 text-gray-400 hover:text-white">
+                    <button onClick={() => setShowInstallModal(false)} className="absolute top-3 right-3 text-gray-400 hover:text-white">
                         <FaTimes size={20} />
                     </button>
                     
@@ -227,22 +215,42 @@ export default function Navbar() {
                         <div className="bg-zinc-800 w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center border-2 border-yellow-500 shadow-lg">
                              {storeLogo ? <img src={storeLogo} alt="Logo" className="rounded-xl w-full h-full object-cover" /> : <span className="text-2xl">🍔</span>}
                         </div>
-                        <h3 className="text-xl font-bold text-white mb-2">Instalar en iPhone</h3>
-                        <p className="text-gray-300 text-sm mb-6">Esta App no está en la App Store, pero puedes instalarla así:</p>
+                        <h3 className="text-xl font-bold text-white mb-2">Instalar Aplicación</h3>
                         
-                        <div className="bg-zinc-800 p-4 rounded-xl text-left space-y-4">
-                            <div className="flex items-center gap-3">
-                                <FaShare className="text-blue-500 text-xl" />
-                                <p className="text-sm text-gray-200">1. Toca el botón <span className="font-bold text-white">Compartir</span> en la barra inferior.</p>
-                            </div>
-                            <div className="h-px bg-zinc-700"></div>
-                            <div className="flex items-center gap-3">
-                                <FaPlusSquare className="text-gray-200 text-xl" />
-                                <p className="text-sm text-gray-200">2. Baja y selecciona <span className="font-bold text-white">"Agregar a Inicio"</span>.</p>
-                            </div>
-                        </div>
+                        {/* INSTRUCCIONES SEGÚN DISPOSITIVO */}
+                        {isIOS ? (
+                            <>
+                                <p className="text-gray-300 text-sm mb-6">En iPhone/iPad:</p>
+                                <div className="bg-zinc-800 p-4 rounded-xl text-left space-y-4">
+                                    <div className="flex items-center gap-3">
+                                        <FaShare className="text-blue-500 text-xl" />
+                                        <p className="text-sm text-gray-200">1. Toca <span className="font-bold text-white">Compartir</span> abajo.</p>
+                                    </div>
+                                    <div className="h-px bg-zinc-700"></div>
+                                    <div className="flex items-center gap-3">
+                                        <FaPlusSquare className="text-gray-200 text-xl" />
+                                        <p className="text-sm text-gray-200">2. Selecciona <span className="font-bold text-white">"Agregar a Inicio"</span>.</p>
+                                    </div>
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                <p className="text-gray-300 text-sm mb-6">Si no se instaló automáticamente:</p>
+                                <div className="bg-zinc-800 p-4 rounded-xl text-left space-y-4">
+                                    <div className="flex items-center gap-3">
+                                        <FaEllipsisV className="text-gray-400 text-xl" />
+                                        <p className="text-sm text-gray-200">1. Toca los <span className="font-bold text-white">3 puntos</span> del navegador.</p>
+                                    </div>
+                                    <div className="h-px bg-zinc-700"></div>
+                                    <div className="flex items-center gap-3">
+                                        <FaDesktop className="text-gray-200 text-xl" />
+                                        <p className="text-sm text-gray-200">2. Busca <span className="font-bold text-white">"Instalar Aplicación"</span> o "Agregar a Pantalla Principal".</p>
+                                    </div>
+                                </div>
+                            </>
+                        )}
 
-                        <button onClick={() => setShowIOSInstructions(false)} className="mt-6 w-full bg-yellow-500 text-black font-bold py-3 rounded-xl hover:bg-yellow-400 transition">
+                        <button onClick={() => setShowInstallModal(false)} className="mt-6 w-full bg-yellow-500 text-black font-bold py-3 rounded-xl hover:bg-yellow-400 transition">
                             ¡Entendido!
                         </button>
                     </div>
