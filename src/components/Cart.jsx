@@ -9,6 +9,7 @@ import { getBankStyle } from '../utils/bankStyles';
 import { initMercadoPago, Wallet } from '@mercadopago/sdk-react';
 import ProductCustomizer from './ProductCustomizer';
 
+// Inicializar MercadoPago
 const publicKey = import.meta.env.PUBLIC_MP_KEY;
 if (publicKey) { initMercadoPago(publicKey, { locale: 'es-MX' }); }
 
@@ -46,12 +47,13 @@ export default function Cart() {
 
   const subtotal = useMemo(() => $cartItems.reduce((acc, item) => acc + item.price * item.quantity, 0), [$cartItems]);
 
+  // --- AQUÍ ESTÁ EL CAMBIO DE PRECIO ---
   const serviceFee = useMemo(() => {
       let fee = 0;
       if (orderType === 'mesa') {
-          fee = Math.round(subtotal * 0.10);
+          fee = Math.round(subtotal * 0.10); // 10% Propina sugerida
       } else if (orderType === 'domicilio') {
-          fee = 15; // Tarifa fija de envío
+          fee = 10; // Costo de envío actualizado a $10
       }
       return fee;
   }, [orderType, subtotal]);
@@ -130,7 +132,6 @@ export default function Cart() {
   const copyToClipboard = () => { if(selectedBankInfo) { navigator.clipboard.writeText(selectedBankInfo.number.replace(/\s/g, '')); showToast("Número copiado", "success"); }};
   const handleUploadProof = async () => { if (!transferFile) return null; const fd = new FormData(); fd.append('file', transferFile); fd.append('upload_preset', UPLOAD_PRESET); const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`, { method: 'POST', body: fd }); const data = await res.json(); return data.secure_url; };
   
-  // --- FUNCIÓN CLAVE PARA ENVIAR PEDIDO ---
   const handleManualCheckout = async () => { 
       if (!user) return showToast("Inicia sesión", 'error'); 
       if ($cartItems.length === 0) return showToast("Carrito vacío", 'error'); 
@@ -149,10 +150,9 @@ export default function Cart() {
               paymentDetail = `Transferencia a: ${selectedBankInfo.bank}`; 
           } 
 
-          // --- RECUPERAR COORDENADAS PARA EL REPARTIDOR ---
+          // Recuperar coordenadas
           let locationCoords = null;
           if (orderType === 'domicilio') {
-              // Buscamos el objeto de dirección completo guardado en el perfil
               const selectedAddrObj = userData.savedAddresses?.find(addr => addr.text === selectedAddress);
               if (selectedAddrObj && selectedAddrObj.coords) {
                   locationCoords = selectedAddrObj.coords;
@@ -162,7 +162,7 @@ export default function Cart() {
           const orderData = { 
               userId: user.uid, 
               userName: userData.displayName || user.displayName || 'Cliente', 
-              userPhone: userData.phone || '', // Útil para el repartidor
+              userPhone: userData.phone || '', 
               items: $cartItems.map(item => ({ 
                   id: item.id, 
                   name: item.name, 
@@ -176,9 +176,7 @@ export default function Cart() {
               serviceFee: serviceFee, 
               commission: commission, 
               type: orderType, 
-              // Si es domicilio, se guarda el texto. Si es mesa, el número.
               detail: orderType === 'mesa' ? `Mesa ${selectedTables.join(', ')}` : selectedAddress || 'Para Llevar',
-              // GUARDAMOS LAS COORDENADAS AQUI
               locationCoords: locationCoords, 
               paymentMethod: paymentMethod, 
               bankDetails: paymentDetail, 
