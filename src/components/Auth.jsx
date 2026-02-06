@@ -5,45 +5,63 @@ import {
   createUserWithEmailAndPassword, 
   GoogleAuthProvider, 
   signInWithPopup, 
-  sendPasswordResetEmail 
+  sendPasswordResetEmail,
+  setPersistence,           // <--- IMPORTANTE PARA MANTENER SESIÓN
+  browserLocalPersistence,   // <--- IMPORTANTE PARA MANTENER SESIÓN
+  onAuthStateChanged
 } from 'firebase/auth';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
-import { FaEnvelope, FaLock, FaSignInAlt, FaUserPlus, FaGoogle, FaTimes } from 'react-icons/fa';
+import { FaEnvelope, FaLock, FaSignInAlt, FaUserPlus, FaGoogle, FaTimes, FaEye, FaEyeSlash } from 'react-icons/fa'; // <--- ICONOS NUEVOS
 
 export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  
+  // Estado para mostrar/ocultar contraseña
+  const [showPassword, setShowPassword] = useState(false); 
+
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState(''); // Estado para mensajes de éxito
+  const [success, setSuccess] = useState(''); 
   const [loading, setLoading] = useState(false);
 
   // Estados para el Modal de Recuperar Contraseña
   const [showResetModal, setShowResetModal] = useState(false);
   const [resetEmail, setResetEmail] = useState('');
 
+  // --- EFECTO NUEVO: SI YA TIENE SESIÓN, REDIRIGIR AL MENÚ ---
   useEffect(() => {
+    // Esto revisa si el usuario ya estaba logueado de antes
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+        if (user) {
+            window.location.href = '/menu';
+        }
+    });
+
     const params = new URLSearchParams(window.location.search);
     const emailParam = params.get('email');
     if (emailParam) {
       setEmail(emailParam);
     }
+
+    return () => unsubscribe();
   }, []);
 
   // --- 1. LÓGICA GOOGLE ---
   const handleGoogleLogin = async () => {
     setError('');
     try {
+        // FORZAMOS LA PERSISTENCIA LOCAL ANTES DE INICIAR
+        await setPersistence(auth, browserLocalPersistence);
+
         const provider = new GoogleAuthProvider();
         const result = await signInWithPopup(auth, provider);
         const user = result.user;
 
-        // Verificar si existe en la BD
         const userRef = doc(db, 'users', user.uid);
         const userSnap = await getDoc(userRef);
 
         if (!userSnap.exists()) {
-            // Si es nuevo, lo registramos con datos de Google
             await setDoc(userRef, {
                 uid: user.uid,
                 email: user.email,
@@ -69,7 +87,11 @@ export default function Auth() {
     setError('');
     setSuccess('');
     setLoading(true);
+    
     try {
+      // FORZAMOS LA PERSISTENCIA LOCAL ANTES DE CUALQUIER COSA
+      await setPersistence(auth, browserLocalPersistence);
+
       if (isLogin) {
         await signInWithEmailAndPassword(auth, email, password);
       } else {
@@ -114,7 +136,7 @@ export default function Auth() {
               setShowResetModal(false);
               setSuccess('');
               setResetEmail('');
-          }, 3000); // Cierra modal en 3 seg
+          }, 3000); 
       } catch (err) {
           if(err.code === 'auth/user-not-found') setError("No existe cuenta con este correo.");
           else setError("Error al enviar correo: " + err.message);
@@ -155,19 +177,28 @@ export default function Auth() {
             />
         </div>
 
+        {/* INPUT DE CONTRASEÑA CON OJITO */}
         <div className="relative group">
             <FaLock className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 group-focus-within:text-yellow-500 transition-colors"/>
             <input 
-                type="password" 
+                type={showPassword ? "text" : "password"} // <--- AQUÍ CAMBIA EL TIPO
                 placeholder="Contraseña" 
-                className="w-full pl-12 pr-4 py-4 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-yellow-500 text-gray-700 font-medium shadow-sm transition-all" 
+                className="w-full pl-12 pr-12 py-4 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-yellow-500 text-gray-700 font-medium shadow-sm transition-all" 
                 value={password} 
                 onChange={(e) => setPassword(e.target.value)} 
                 required 
             />
+            
+            {/* Botón del Ojo */}
+            <button 
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-yellow-600 transition focus:outline-none"
+            >
+                {showPassword ? <FaEyeSlash size={20} /> : <FaEye size={20} />}
+            </button>
         </div>
 
-        {/* Enlace Olvidé Contraseña (Solo en Login) */}
         {isLogin && (
             <div className="text-right -mt-2">
                 <button 
@@ -190,7 +221,6 @@ export default function Auth() {
 
       </form>
 
-      {/* --- DIVISOR Y BOTÓN GOOGLE --- */}
       <div className="flex items-center my-6">
           <div className="flex-1 h-px bg-gray-300"></div>
           <span className="px-3 text-xs text-gray-400 font-bold uppercase">O continúa con</span>
@@ -206,7 +236,6 @@ export default function Auth() {
           <span className="text-sm">Iniciar con Google</span>
       </button>
 
-      {/* --- PIE DE PÁGINA: CAMBIAR MODO --- */}
       <div className="text-center pt-2 border-t border-gray-200">
         <p className="text-gray-500 text-sm mb-2">
           {isLogin ? '¿Aún no tienes cuenta?' : '¿Ya tienes una cuenta?'}
