@@ -41,7 +41,7 @@ export default function WaiterDashboard() {
 
     const q = query(
       collection(db, "orders"),
-      where("status", "==", "entregado"), // Estado final
+      where("status", "==", "entregado"), // ESTADO FINAL
       where("servedBy", "==", user.uid),
       where("createdAt", ">=", todayISO),
       orderBy("createdAt", "desc")
@@ -56,6 +56,7 @@ export default function WaiterDashboard() {
       if (!user) return;
       try {
           const orderRef = doc(db, "orders", order.id);
+          // AL DAR CLICK AQUÍ, LA MESA SE LIBERA (status: 'entregado')
           await updateDoc(orderRef, { 
               status: 'entregado', 
               servedBy: user.uid,
@@ -104,7 +105,7 @@ export default function WaiterDashboard() {
                     <div key={order.id} className="bg-zinc-800 rounded-xl border border-blue-500/30 shadow-lg overflow-hidden flex flex-col animate-fade-in">
                         <div className="bg-blue-600 p-3 text-white font-bold flex justify-between items-center">
                             <span className="text-lg">{order.detail}</span>
-                            <span className="text-xs bg-black/20 px-2 py-1 rounded">{new Date(order.createdAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+                            <span className="text-xs bg-black/20 px-2 py-1 rounded">{new Date(order.createdAt?.toDate ? order.createdAt.toDate() : order.createdAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
                         </div>
                         <div className="p-4 flex-1 space-y-2">
                             <p className="text-sm text-gray-400 mb-2 font-bold uppercase">{order.userName}</p>
@@ -133,11 +134,13 @@ export default function WaiterDashboard() {
                       <div className="border-t border-dashed border-zinc-600 my-2 pt-2 flex justify-between items-center"><span className="text-lg font-bold text-white">💰 Entregar al Jefe:</span><span className="text-2xl font-black text-green-400">${totals.payToBoss}</span></div>
                   </div>
               </div>
+              
+              {/* LISTA HISTORIAL */}
               <div className="space-y-2">
                   {historyOrders.map(order => (
                       <div key={order.id} className="bg-zinc-800 rounded-lg border border-zinc-700 overflow-hidden">
                           <button onClick={() => toggleExpand(order.id)} className="w-full flex justify-between items-center p-4 hover:bg-zinc-700/50 transition">
-                              <div className="text-left"><p className="font-bold text-white text-sm">{order.detail}</p><p className="text-xs text-gray-400">{new Date(order.createdAt).toLocaleTimeString()}</p></div>
+                              <div className="text-left"><p className="font-bold text-white text-sm">{order.detail}</p><p className="text-xs text-gray-400">${order.total}</p></div>
                               <div>{expandedOrderId === order.id ? <FaChevronUp/> : <FaChevronDown/>}</div>
                           </button>
                           {expandedOrderId === order.id && (

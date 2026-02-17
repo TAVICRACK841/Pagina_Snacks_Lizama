@@ -11,28 +11,30 @@ export default function KitchenBoard() {
   const [loading, setLoading] = useState(true);
 
   // --- REGLAS DE FILTRADO (QUÉ VE CADA QUIEN) ---
+  // IMPORTANTE: Todo en minúsculas para comparar fácil
   const ROLE_CATEGORIES = {
-      'hamburguesero': ['hamburguesa', 'burger', 'perros', 'hot dog', 'box', 'mini box', 'carne'],
-      'freidor': ['alitas', 'boneless', 'papas', 'dedos', 'tiras', 'nuggets', 'aros', 'snack'],
+      'hamburguesero': ['hamburguesa', 'burger', 'perros', 'hot dog', 'box', 'mini box', 'carne', 'arrachera', 'pollo'],
+      'freidor': ['alitas', 'boneless', 'papas', 'dedos', 'tiras', 'nuggets', 'aros', 'snack', 'box'],
       'productor': ['pasta', 'camarones', 'ensalada'],
-      // Bebidas se filtran fuera
   };
 
   useEffect(() => {
+    // 1. CARGA DE USUARIO
     const unsubAuth = onAuthStateChanged(auth, async (u) => {
       if (u) {
         try {
           const userDoc = await getDoc(doc(db, "users", u.uid));
           if (userDoc.exists()) {
               const data = userDoc.data();
-              setUserRoles(data.roles || (data.role ? [data.role] : []));
+              // Normalizamos roles a minúsculas para evitar errores
+              const roles = data.roles || (data.role ? [data.role] : []);
+              setUserRoles(roles.map(r => r.toLowerCase()));
           }
         } catch (error) { console.error("Error rol", error); }
       }
     });
 
     // 2. ESCUCHAR PEDIDOS (SOLO PENDIENTES Y PREPARANDO)
-    // El pedido SE MANTIENE aquí mientras se prepara. Solo se va cuando es 'listo'.
     const q = query(
         collection(db, "orders"),
         where("status", "in", ["pendiente", "preparando"]),
@@ -42,9 +44,9 @@ export default function KitchenBoard() {
     const unsubscribeOrders = onSnapshot(q, (snapshot) => {
       const ordersList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setOrders(ordersList);
-      setLoading(false); // <--- Desbloquea la pantalla
+      setLoading(false);
     }, (error) => {
-        console.error(error);
+        console.error("Error al cargar pedidos:", error);
         setLoading(false);
     });
 
@@ -52,8 +54,8 @@ export default function KitchenBoard() {
   }, []);
 
   const toggleItemCompletion = async (order, originalIndex) => {
-      // Clona items para no mutar estado directo
-      const updatedItems = order.items.map(i => ({...i}));
+      const updatedItems = [...order.items];
+      // Aseguramos que completed sea booleano
       updatedItems[originalIndex].completed = !updatedItems[originalIndex].completed;
       
       try {
@@ -64,12 +66,12 @@ export default function KitchenBoard() {
   };
 
   const updateStatus = async (orderId, newStatus) => {
-    if (newStatus === 'cancelado' && !confirm("¿Seguro que quieres cancelar este pedido? Se borrará de la lista.")) return;
+    if (newStatus === 'cancelado' && !confirm("¿Seguro que quieres cancelar este pedido?")) return;
 
     try {
       const updateData = { status: newStatus };
       
-      // Si se completa (Listo), guardamos quien lo hizo
+      // Si pasa a 'listo', guardamos quién lo terminó
       if (newStatus === 'listo') {
           updateData.preparedBy = auth.currentUser?.uid;
           updateData.preparedByName = auth.currentUser?.displayName || 'Cocina';
@@ -77,8 +79,8 @@ export default function KitchenBoard() {
 
       await updateDoc(doc(db, "orders", orderId), updateData);
       
-      if(newStatus === 'listo') showToast('🔔 ¡Orden Lista!', 'success');
-      else if(newStatus === 'cancelado') showToast('🚫 Cancelado', 'error');
+      if(newStatus === 'listo') showToast('🔔 ¡Orden enviada al Mesero!', 'success');
+      else if(newStatus === 'cancelado') showToast('🚫 Pedido Cancelado', 'error');
       else showToast('🔥 Cocinando...', 'success');
 
     } catch (error) { showToast("Error al actualizar", 'error'); }
@@ -87,10 +89,9 @@ export default function KitchenBoard() {
   // --- FILTRO INTELIGENTE ---
   const shouldShowItem = (item) => {
     const name = item.name.toLowerCase();
-    const cat = item.category ? item.category.toLowerCase() : '';
-
+    
     // EXCLUIR BEBIDAS (Van a Frappes)
-    if (name.includes('frappe') || name.includes('horchata') || name.includes('jamaica') || name.includes('soda') || name.includes('refresco') || name.includes('limonada') || name.includes('tamarindo')) return false;
+    if (name.includes('frappe') || name.includes('horchata') || name.includes('jamaica') || name.includes('soda') || name.includes('refresco') || name.includes('limonada')) return false;
 
     // ADMIN VE TODO (Resto de comida)
     if (userRoles.includes('admin')) return true;
@@ -107,7 +108,7 @@ export default function KitchenBoard() {
     if (myKeywords.length === 0) return false;
 
     // Verificar coincidencias
-    const matches = myKeywords.some(keyword => name.includes(keyword) || cat.includes(keyword));
+    const matches = myKeywords.some(keyword => name.includes(keyword));
     return matches;
   };
 
@@ -201,8 +202,7 @@ export default function KitchenBoard() {
                     {/* BOTÓN PRINCIPAL */}
                     <button
                         onClick={() => {
-                            // Si está Pendiente -> Pasa a Preparando (Se queda en pantalla)
-                            // Si está Preparando -> Pasa a Listo (Desaparece)
+                            // Si está pendiente -> preparando. Si está preparando -> listo.
                             let nextStatus = order.status === 'pendiente' ? 'preparando' : 'listo';
                             updateStatus(order.id, nextStatus);
                         }}
@@ -215,7 +215,7 @@ export default function KitchenBoard() {
                         <><FaCheck/> ¡Orden Lista!</>}
                     </button>
 
-                    {/* BOTÓN CANCELAR (SIEMPRE VISIBLE) */}
+                    {/* BOTÓN CANCELAR */}
                     <button 
                         onClick={() => updateStatus(order.id, 'cancelado')}
                         className="w-full bg-zinc-700 hover:bg-red-900/50 text-red-400 text-xs font-bold py-2 rounded-lg transition border border-zinc-600 hover:border-red-800 flex items-center justify-center gap-1"
@@ -228,11 +228,10 @@ export default function KitchenBoard() {
             );
         })}
         
-        {/* MENSAJE DE VACÍO */}
         {orders.length === 0 && !loading && (
             <div className="col-span-full flex flex-col items-center justify-center py-20 text-gray-500 opacity-60">
                 <FaUtensils className="text-6xl mb-4"/>
-                <p className="text-xl font-bold">No hay pedidos pendientes</p>
+                <p className="text-xl font-bold">No hay pedidos pendientes para tu área</p>
                 <p className="text-sm">Todo tranquilo en la cocina.</p>
             </div>
         )}
