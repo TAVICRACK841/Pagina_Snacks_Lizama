@@ -6,19 +6,17 @@ import {
   GoogleAuthProvider, 
   signInWithPopup, 
   sendPasswordResetEmail,
-  setPersistence,           // <--- IMPORTANTE PARA MANTENER SESIÓN
-  browserLocalPersistence,   // <--- IMPORTANTE PARA MANTENER SESIÓN
+  setPersistence,
+  browserLocalPersistence,
   onAuthStateChanged
 } from 'firebase/auth';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
-import { FaEnvelope, FaLock, FaSignInAlt, FaUserPlus, FaGoogle, FaTimes, FaEye, FaEyeSlash } from 'react-icons/fa'; // <--- ICONOS NUEVOS
+import { FaEnvelope, FaLock, FaSignInAlt, FaUserPlus, FaGoogle, FaTimes, FaEye, FaEyeSlash } from 'react-icons/fa';
 
 export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  
-  // Estado para mostrar/ocultar contraseña
   const [showPassword, setShowPassword] = useState(false); 
 
   const [error, setError] = useState('');
@@ -29,9 +27,8 @@ export default function Auth() {
   const [showResetModal, setShowResetModal] = useState(false);
   const [resetEmail, setResetEmail] = useState('');
 
-  // --- EFECTO NUEVO: SI YA TIENE SESIÓN, REDIRIGIR AL MENÚ ---
   useEffect(() => {
-    // Esto revisa si el usuario ya estaba logueado de antes
+    // Revisar sesión activa y redirigir
     const unsubscribe = onAuthStateChanged(auth, (user) => {
         if (user) {
             window.location.href = '/menu';
@@ -47,17 +44,17 @@ export default function Auth() {
     return () => unsubscribe();
   }, []);
 
-  // --- 1. LÓGICA GOOGLE ---
+  // --- 1. LOGIN CON GOOGLE ---
   const handleGoogleLogin = async () => {
     setError('');
+    setLoading(true);
     try {
-        // FORZAMOS LA PERSISTENCIA LOCAL ANTES DE INICIAR
         await setPersistence(auth, browserLocalPersistence);
-
         const provider = new GoogleAuthProvider();
         const result = await signInWithPopup(auth, provider);
         const user = result.user;
 
+        // Verificar si existe en la BD
         const userRef = doc(db, 'users', user.uid);
         const userSnap = await getDoc(userRef);
 
@@ -74,27 +71,36 @@ export default function Auth() {
                 savedAddresses: []
             });
         }
+        // La redirección la maneja el onAuthStateChanged, pero por seguridad:
         window.location.href = '/menu';
     } catch (err) {
         console.error(err);
-        setError("Error al iniciar con Google. Intenta de nuevo.");
+        setError("Error al iniciar con Google.");
+        setLoading(false);
     }
   };
 
-  // --- 2. LÓGICA CORREO/CONTRASEÑA ---
+  // --- 2. LOGIN CON CORREO ---
   const handleSubmit = async (e) => {
-    e.preventDefault();
+    e.preventDefault(); // IMPORTANTE: Evita que la página se recargue
     setError('');
     setSuccess('');
+    
+    if (!email || !password) {
+        setError("Por favor completa todos los campos.");
+        return;
+    }
+
     setLoading(true);
     
     try {
-      // FORZAMOS LA PERSISTENCIA LOCAL ANTES DE CUALQUIER COSA
       await setPersistence(auth, browserLocalPersistence);
 
       if (isLogin) {
+        // --- INICIAR SESIÓN ---
         await signInWithEmailAndPassword(auth, email, password);
       } else {
+        // --- CREAR CUENTA ---
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         const user = userCredential.user;
         const role = email === 'gustavo841lizama@gmail.com' ? 'admin' : 'cliente';
@@ -111,17 +117,24 @@ export default function Auth() {
           photoURL: ''
         });
       }
-      window.location.href = '/menu';
+      // Redirección manejada por el observer
     } catch (err) {
-      if(err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') setError("Correo o contraseña incorrectos.");
-      else if(err.code === 'auth/email-already-in-use') setError("Este correo ya está registrado.");
-      else if(err.code === 'auth/weak-password') setError("La contraseña debe tener al menos 6 caracteres.");
-      else setError(err.message);
+      console.error("Auth Error:", err.code);
+      if(err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
+          setError("Correo o contraseña incorrectos.");
+      } else if(err.code === 'auth/email-already-in-use') {
+          setError("Este correo ya está registrado. Intenta iniciar sesión.");
+      } else if(err.code === 'auth/weak-password') {
+          setError("La contraseña debe tener al menos 6 caracteres.");
+      } else if(err.code === 'auth/missing-password') {
+        setError("Falta la contraseña.");
+      } else {
+          setError("Error de autenticación: " + err.message);
+      }
+      setLoading(false);
     }
-    setLoading(false);
   };
 
-  // --- 3. LÓGICA RECUPERAR PASSWORD ---
   const handlePasswordReset = async (e) => {
       e.preventDefault();
       if(!resetEmail) {
@@ -130,81 +143,81 @@ export default function Auth() {
       }
       try {
           await sendPasswordResetEmail(auth, resetEmail);
-          setSuccess("Correo de recuperación enviado. Revisa tu bandeja.");
+          setSuccess("Correo enviado. Revisa tu bandeja (incluso Spam).");
           setError('');
           setTimeout(() => {
               setShowResetModal(false);
               setSuccess('');
               setResetEmail('');
-          }, 3000); 
+          }, 4000); 
       } catch (err) {
           if(err.code === 'auth/user-not-found') setError("No existe cuenta con este correo.");
-          else setError("Error al enviar correo: " + err.message);
+          else setError("Error al enviar: " + err.message);
       }
   };
 
   return (
-    <div className="bg-zinc-100 p-8 rounded-3xl shadow-2xl w-full transition-all duration-300 transform hover:shadow-yellow-500/20 border border-zinc-200 relative">
+    <div className="bg-white/90 backdrop-blur-md p-8 rounded-3xl shadow-2xl w-full border border-zinc-200 relative overflow-hidden">
       
-      <h2 className="text-3xl font-extrabold text-center mb-6 text-gray-800 flex justify-center items-center gap-2">
-        {isLogin ? <><FaSignInAlt className="text-yellow-500"/> Iniciar Sesión</> : <><FaUserPlus className="text-yellow-500"/> Crear Cuenta</>}
+      {/* Barra superior decorativa */}
+      <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-yellow-400 to-yellow-600"></div>
+
+      <h2 className="text-3xl font-black text-center mb-8 text-zinc-800 tracking-tight">
+        {isLogin ? 'Bienvenido de nuevo' : 'Únete a Snacks Lizama'}
       </h2>
 
       {error && (
-        <div className="bg-red-50 border-l-4 border-red-500 text-red-700 p-3 rounded mb-4 text-sm font-medium animate-pulse">
-          {error}
+        <div className="bg-red-50 border-l-4 border-red-500 text-red-700 p-3 rounded mb-4 text-sm font-bold animate-pulse flex items-center gap-2">
+           <span>⚠️</span> {error}
         </div>
       )}
 
       {success && (
-        <div className="bg-green-50 border-l-4 border-green-500 text-green-700 p-3 rounded mb-4 text-sm font-medium animate-pulse">
+        <div className="bg-green-50 border-l-4 border-green-500 text-green-700 p-3 rounded mb-4 text-sm font-bold animate-pulse">
           {success}
         </div>
       )}
 
-      {/* --- FORMULARIO PRINCIPAL --- */}
-      <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+      {/* --- FORMULARIO --- */}
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         
         <div className="relative group">
-            <FaEnvelope className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 group-focus-within:text-yellow-500 transition-colors"/>
+            <FaEnvelope className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 group-focus-within:text-yellow-600 transition-colors z-10"/>
             <input 
                 type="email" 
                 placeholder="Correo electrónico" 
-                className="w-full pl-12 pr-4 py-4 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-yellow-500 text-gray-700 font-medium shadow-sm transition-all" 
+                className="w-full pl-12 pr-4 py-4 bg-zinc-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:bg-white text-gray-800 font-medium shadow-sm transition-all" 
                 value={email} 
                 onChange={(e) => setEmail(e.target.value)} 
                 required 
             />
         </div>
 
-        {/* INPUT DE CONTRASEÑA CON OJITO */}
         <div className="relative group">
-            <FaLock className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 group-focus-within:text-yellow-500 transition-colors"/>
+            <FaLock className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 group-focus-within:text-yellow-600 transition-colors z-10"/>
             <input 
-                type={showPassword ? "text" : "password"} // <--- AQUÍ CAMBIA EL TIPO
+                type={showPassword ? "text" : "password"} 
                 placeholder="Contraseña" 
-                className="w-full pl-12 pr-12 py-4 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-yellow-500 text-gray-700 font-medium shadow-sm transition-all" 
+                className="w-full pl-12 pr-12 py-4 bg-zinc-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:bg-white text-gray-800 font-medium shadow-sm transition-all" 
                 value={password} 
                 onChange={(e) => setPassword(e.target.value)} 
                 required 
             />
-            
-            {/* Botón del Ojo */}
             <button 
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-yellow-600 transition focus:outline-none"
+                className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-yellow-600 transition focus:outline-none p-1"
             >
-                {showPassword ? <FaEyeSlash size={20} /> : <FaEye size={20} />}
+                {showPassword ? <FaEyeSlash size={18} /> : <FaEye size={18} />}
             </button>
         </div>
 
         {isLogin && (
-            <div className="text-right -mt-2">
+            <div className="text-right">
                 <button 
                     type="button"
-                    onClick={() => { setShowResetModal(true); setError(''); setSuccess(''); }}
-                    className="text-xs font-bold text-gray-500 hover:text-yellow-600 underline transition"
+                    onClick={() => { setShowResetModal(true); setError(''); }}
+                    className="text-xs font-bold text-gray-500 hover:text-yellow-600 transition"
                 >
                     ¿Olvidaste tu contraseña?
                 </button>
@@ -214,69 +227,82 @@ export default function Auth() {
         <button 
             type="submit" 
             disabled={loading}
-            className="mt-2 w-full bg-yellow-500 text-black font-black py-4 rounded-xl shadow-lg hover:bg-yellow-400 hover:shadow-yellow-500/40 transform hover:-translate-y-1 active:scale-95 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wide"
+            className="mt-2 w-full bg-yellow-500 text-zinc-900 font-black py-4 rounded-xl shadow-[0_4px_14px_0_rgba(234,179,8,0.39)] hover:bg-yellow-400 hover:shadow-[0_6px_20px_rgba(234,179,8,0.23)] transform hover:-translate-y-0.5 active:scale-95 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
         >
-            {loading ? 'Procesando...' : (isLogin ? 'Entrar a la App' : 'Registrarme Gratis')}
+            {loading ? (
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-zinc-900"></div>
+            ) : (
+                isLogin ? <><FaSignInAlt /> Iniciar Sesión</> : <><FaUserPlus /> Crear Cuenta</>
+            )}
         </button>
 
       </form>
 
       <div className="flex items-center my-6">
-          <div className="flex-1 h-px bg-gray-300"></div>
-          <span className="px-3 text-xs text-gray-400 font-bold uppercase">O continúa con</span>
-          <div className="flex-1 h-px bg-gray-300"></div>
+          <div className="flex-1 h-px bg-gray-200"></div>
+          <span className="px-3 text-xs text-gray-400 font-bold uppercase tracking-wider">O usa tu cuenta</span>
+          <div className="flex-1 h-px bg-gray-200"></div>
       </div>
 
+      {/* --- BOTÓN DE GOOGLE REDISEÑADO --- */}
       <button 
           type="button"
           onClick={handleGoogleLogin}
-          className="w-full bg-white border border-gray-300 text-gray-700 font-bold py-3 rounded-xl shadow-sm hover:bg-gray-50 hover:shadow-md transition flex items-center justify-center gap-2 mb-4"
+          disabled={loading}
+          className="w-full bg-white border border-gray-200 text-gray-700 font-bold py-3.5 rounded-xl shadow-sm hover:shadow-md hover:border-gray-300 transition-all flex items-center justify-center gap-3 group active:scale-95"
       >
-          <FaGoogle className="text-red-500 text-lg" />
-          <span className="text-sm">Iniciar con Google</span>
+          <div className="bg-white p-1 rounded-full group-hover:scale-110 transition-transform">
+             <FaGoogle className="text-red-500 text-xl" />
+          </div>
+          <span className="group-hover:text-black transition-colors">Continuar con Google</span>
       </button>
 
-      <div className="text-center pt-2 border-t border-gray-200">
-        <p className="text-gray-500 text-sm mb-2">
-          {isLogin ? '¿Aún no tienes cuenta?' : '¿Ya tienes una cuenta?'}
-        </p>
+      <div className="text-center pt-6 mt-2">
         <button 
             onClick={() => { setIsLogin(!isLogin); setError(''); setSuccess(''); }} 
-            className="text-yellow-600 font-extrabold hover:text-yellow-700 hover:underline transition uppercase tracking-wide text-sm"
+            className="text-sm text-gray-600 font-medium hover:text-yellow-600 transition"
         >
-          {isLogin ? 'Crear cuenta nueva' : 'Ingresar ahora'}
+          {isLogin ? '¿No tienes cuenta? ' : '¿Ya tienes cuenta? '}
+          <span className="font-extrabold text-yellow-600 underline decoration-2 underline-offset-2">
+            {isLogin ? 'Regístrate aquí' : 'Ingresa aquí'}
+          </span>
         </button>
       </div>
 
-      {/* --- MODAL RECUPERAR CONTRASEÑA --- */}
+      {/* --- MODAL RECUPERAR --- */}
       {showResetModal && (
-          <div className="absolute inset-0 bg-white/95 backdrop-blur-sm rounded-3xl z-50 flex flex-col justify-center p-8 animate-fade-in">
+          <div className="absolute inset-0 bg-white/95 backdrop-blur-md rounded-3xl z-50 flex flex-col justify-center p-8 animate-fade-in">
               <button 
                   onClick={() => setShowResetModal(false)}
-                  className="absolute top-4 right-4 text-gray-400 hover:text-red-500 transition"
+                  className="absolute top-4 right-4 text-gray-400 hover:text-red-500 bg-gray-100 hover:bg-red-50 p-2 rounded-full transition"
               >
-                  <FaTimes size={24} />
+                  <FaTimes size={16} />
               </button>
 
-              <h3 className="text-2xl font-bold text-gray-800 mb-2 text-center">Recuperar Acceso</h3>
-              <p className="text-gray-500 text-center mb-6 text-sm">Ingresa tu correo y te enviaremos un enlace mágico.</p>
+              <div className="text-center mb-6">
+                  <div className="bg-yellow-100 text-yellow-600 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-2xl">
+                      🔐
+                  </div>
+                  <h3 className="text-2xl font-bold text-gray-800">Recuperar Acceso</h3>
+                  <p className="text-gray-500 text-sm mt-2">Te enviaremos un enlace mágico a tu correo.</p>
+              </div>
 
-              {error && <p className="text-red-500 text-xs text-center mb-3 font-bold">{error}</p>}
-              {success && <p className="text-green-500 text-xs text-center mb-3 font-bold">{success}</p>}
+              {error && <p className="text-red-500 text-xs text-center mb-3 font-bold bg-red-50 p-2 rounded">{error}</p>}
+              {success && <p className="text-green-500 text-xs text-center mb-3 font-bold bg-green-50 p-2 rounded">{success}</p>}
 
               <form onSubmit={handlePasswordReset} className="space-y-4">
                   <div className="relative group">
-                      <FaEnvelope className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400"/>
+                      <FaEnvelope className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 group-focus-within:text-yellow-600"/>
                       <input 
                           type="email" 
                           placeholder="Tu correo registrado" 
-                          className="w-full pl-12 pr-4 py-3 bg-gray-50 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-yellow-500 text-gray-800" 
+                          className="w-full pl-12 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-yellow-500 text-gray-800" 
                           value={resetEmail} 
                           onChange={(e) => setResetEmail(e.target.value)} 
                           autoFocus
                       />
                   </div>
-                  <button type="submit" className="w-full bg-gray-800 text-white font-bold py-3 rounded-xl hover:bg-black transition shadow-lg">
+                  <button type="submit" className="w-full bg-zinc-800 text-white font-bold py-3 rounded-xl hover:bg-black transition shadow-lg hover:shadow-xl active:scale-95">
                       Enviar Enlace
                   </button>
               </form>

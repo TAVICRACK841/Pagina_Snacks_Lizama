@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { auth, db } from '../firebase/config';
 import { addDoc, collection, doc, onSnapshot, query, where, updateDoc } from 'firebase/firestore';
 import { showToast } from '../stores/toastStore';
-import { FaShoppingBag, FaCreditCard, FaMoneyBillWave, FaTerminal, FaCheckCircle, FaTimes, FaTrash, FaMapMarkerAlt, FaMobileAlt, FaUpload, FaCopy, FaArrowLeft, FaEdit, FaClock } from 'react-icons/fa';
+import { FaShoppingBag, FaCreditCard, FaMoneyBillWave, FaTerminal, FaCheckCircle, FaTimes, FaTrash, FaMapMarkerAlt, FaMobileAlt, FaUpload, FaCopy, FaArrowLeft, FaEdit, FaClock, FaQrcode } from 'react-icons/fa'; // <--- AGREGADO FaQrcode
 import { getBankStyle } from '../utils/bankStyles';
 import { initMercadoPago, Wallet } from '@mercadopago/sdk-react';
 import ProductCustomizer from './ProductCustomizer';
@@ -47,13 +47,12 @@ export default function Cart() {
 
   const subtotal = useMemo(() => $cartItems.reduce((acc, item) => acc + item.price * item.quantity, 0), [$cartItems]);
 
-  // --- AQUÍ ESTÁ EL CAMBIO DE PRECIO ---
   const serviceFee = useMemo(() => {
       let fee = 0;
       if (orderType === 'mesa') {
           fee = Math.round(subtotal * 0.10); // 10% Propina sugerida
       } else if (orderType === 'domicilio') {
-          fee = 10; // Costo de envío actualizado a $10
+          fee = 10; 
       }
       return fee;
   }, [orderType, subtotal]);
@@ -69,6 +68,7 @@ export default function Cart() {
           case 'efectivo': return active ? 'bg-green-100 dark:bg-green-900/30 border-green-500 text-green-700 dark:text-green-400 shadow-sm ring-1 ring-green-500' : baseClass;
           case 'point': return active ? 'bg-yellow-100 dark:bg-yellow-900/30 border-yellow-500 text-yellow-700 dark:text-yellow-400 shadow-sm ring-1 ring-yellow-500' : baseClass;
           case 'transferencia': return active ? 'bg-purple-100 dark:bg-purple-900/30 border-purple-500 text-purple-700 dark:text-purple-400 shadow-sm ring-1 ring-purple-500' : baseClass;
+          case 'codi': return active ? 'bg-pink-100 dark:bg-pink-900/30 border-pink-500 text-pink-700 dark:text-pink-400 shadow-sm ring-1 ring-pink-500' : baseClass; // <--- CODI COLOR
           case 'mercadopago': return active ? 'bg-sky-100 dark:bg-sky-900/30 border-sky-500 text-sky-700 dark:text-sky-400 shadow-sm ring-1 ring-sky-500' : baseClass;
           default: return baseClass;
       }
@@ -79,6 +79,7 @@ export default function Cart() {
           case 'efectivo': return 'bg-green-600 hover:bg-green-700';
           case 'point': return 'bg-yellow-500 hover:bg-yellow-600 text-black';
           case 'transferencia': return 'bg-purple-600 hover:bg-purple-700';
+          case 'codi': return 'bg-pink-600 hover:bg-pink-700'; // <--- CODI COLOR
           case 'mercadopago': return 'bg-sky-600 hover:bg-sky-700';
           default: return 'bg-gray-600';
       }
@@ -142,8 +143,13 @@ export default function Cart() {
       setLoading(true); 
       try { 
           let proofUrl = ''; 
-          let paymentDetail = paymentMethod === 'efectivo' ? 'Pago en Efectivo' : 'Pago con Point Terminal'; 
-          if (paymentMethod === 'transferencia') { 
+          let paymentDetail = '';
+
+          // Definir detalle según método
+          if (paymentMethod === 'efectivo') paymentDetail = 'Pago en Efectivo';
+          else if (paymentMethod === 'point') paymentDetail = 'Pago con Point Terminal';
+          else if (paymentMethod === 'codi') paymentDetail = 'Cobro con CoDi (QR)'; // <--- DETALLE CODI
+          else if (paymentMethod === 'transferencia') { 
               setUploading(true); 
               proofUrl = await handleUploadProof(); 
               setUploading(false); 
@@ -273,9 +279,10 @@ export default function Cart() {
                     <label className="block font-bold mb-3 dark:text-white">Método de Pago</label>
                     <div className="grid grid-cols-2 gap-3">
                         <button onClick={() => handlePaymentChange('efectivo')} className={`p-3 rounded-xl border font-bold text-sm flex items-center justify-center gap-2 transition ${getButtonColor('efectivo')}`}><FaMoneyBillWave/> Efectivo</button>
-                        <button onClick={() => handlePaymentChange('point')} className={`p-3 rounded-xl border font-bold text-sm flex items-center justify-center gap-2 transition ${getButtonColor('point')}`}><FaTerminal/> Point Terminal</button>
+                        <button onClick={() => handlePaymentChange('point')} className={`p-3 rounded-xl border font-bold text-sm flex items-center justify-center gap-2 transition ${getButtonColor('point')}`}><FaTerminal/> Point</button>
                         <button onClick={() => handlePaymentChange('transferencia')} className={`p-3 rounded-xl border font-bold text-sm flex items-center justify-center gap-2 transition ${getButtonColor('transferencia')}`}><FaMobileAlt/> Transferir</button>
-                        <button onClick={() => handlePaymentChange('mercadopago')} className={`p-3 rounded-xl border font-bold text-sm flex items-center justify-center gap-2 transition ${getButtonColor('mercadopago')}`}><FaCreditCard/> Pago Digital</button>
+                        <button onClick={() => handlePaymentChange('codi')} className={`p-3 rounded-xl border font-bold text-sm flex items-center justify-center gap-2 transition ${getButtonColor('codi')}`}><FaQrcode/> CoDi</button> 
+                        <button onClick={() => handlePaymentChange('mercadopago')} className={`p-3 rounded-xl border font-bold text-sm flex items-center justify-center gap-2 transition ${getButtonColor('mercadopago')}`}><FaCreditCard/> Digital</button>
                     </div>
                 </div>
 

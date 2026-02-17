@@ -1,0 +1,13 @@
+---
+import Layout from '../layouts/Layout.astro';
+import FrappeDashboard from '../components/FrappeDashboard';
+import StoreGuard from '../components/StoreGuard';
+---
+
+<Layout title="Frappes | Snacks Lizama">
+  <StoreGuard allowedRoles={['admin', 'frappero']} client:load>
+    <div class="min-h-screen bg-zinc-900 text-white pt-20">
+      <FrappeDashboard client:only="react" />
+    </div>
+  </StoreGuard>
+</Layout>
