@@ -7,7 +7,6 @@ import { showToast } from '../stores/toastStore';
 import { 
     FaTrash, FaEdit, FaFilePdf, FaTimes, FaCogs, FaMoneyBillWave, FaCamera, FaPalette, FaHeadset, FaEnvelope, FaCheckDouble, FaSnowflake, FaThermometerHalf, FaGlassWhiskey, FaCreditCard, FaUserTag 
 } from 'react-icons/fa';
-// Asegúrate de que este componente exista en la misma carpeta
 import UserRoleEditor from './UserRoleEditor';
 
 export default function AdminDashboard() {
@@ -51,7 +50,6 @@ export default function AdminDashboard() {
 
   const BANKS = ['BBVA', 'Santander', 'Banamex', 'Banorte', 'HSBC', 'Banco Azteca', 'Bancoppel', 'Spin by Oxxo', 'Nu', 'Transferencia', 'Otro'];
 
-  // --- LISTA DE ROLES ACTUALIZADA (NOMBRES LIMPIOS) ---
   const ROLES_OPTIONS = [
       { id: 'admin', label: 'Administrador' },
       { id: 'hamburguesero', label: 'Hamburguesero' },
@@ -89,8 +87,7 @@ export default function AdminDashboard() {
   const [tempSauce, setTempSauce] = useState('');
   const [tempExtraSauce, setTempExtraSauce] = useState(''); 
   
-  // ESTADO PARA EDICIÓN DE ROLES DE USUARIO
-  const [editingUserRoles, setEditingUserRoles] = useState(null); // ID del usuario que se está editando
+  const [editingUserRoles, setEditingUserRoles] = useState(null);
 
   useEffect(() => {
     const unsubMain = onSnapshot(doc(db, "store_config", "main"), (docSnap) => {
@@ -105,9 +102,7 @@ export default function AdminDashboard() {
     });
 
     const unsubPhone = onSnapshot(doc(db, "settings", "contact_info"), (docSnap) => {
-        if (docSnap.exists()) {
-            setSupportPhone(docSnap.data().phoneNumber || '');
-        }
+        if (docSnap.exists()) setSupportPhone(docSnap.data().phoneNumber || '');
     });
 
     return () => { unsubMain(); unsubPhone(); };
@@ -162,59 +157,85 @@ export default function AdminDashboard() {
   const toggleProductStock = async (product) => { await updateDoc(doc(db, "products", product.id), { inStock: !product.inStock }); fetchProducts(); };
   const handleDeleteProduct = async (id) => { if(confirm("¿Eliminar?")) { await deleteDoc(doc(db, "products", id)); fetchProducts(); } };
 
-  const fetchOrders = async () => { const q = query(collection(db, "orders"), orderBy("createdAt", "desc")); const s = await getDocs(q); setOrders(s.docs.map(d => ({ id: d.id, ...d.data() })).filter(o => ['completado', 'entregado'].includes(o.status))); };
+  // --- OBTENER PEDIDOS (CORRECCIÓN PARA FINANZAS) ---
+  const fetchOrders = async () => { 
+      const q = query(collection(db, "orders"), orderBy("createdAt", "desc")); 
+      const s = await getDocs(q); 
+      
+      const allFetchedOrders = s.docs.map(d => ({ id: d.id, ...d.data() }));
+
+      const ordersForFinance = allFetchedOrders.filter(o => {
+          // 1. Pedidos terminados o cancelados (Mesas, Domicilio)
+          if (['completado', 'entregado', 'cancelado'].includes(o.status)) return true;
+          
+          // 2. CORRECCIÓN: Los pedidos "Para Llevar" se pagan al momento en caja, 
+          // por lo que el dinero ya entró, incluso si siguen en "pendiente", "preparando" o "listo".
+          if (o.type === 'llevar' || o.type === 'para_llevar') return true;
+
+          return false;
+      });
+
+      setOrders(ordersForFinance); 
+  };
+
   const fetchExpenses = async () => { const q = query(collection(db, "expenses"), orderBy("createdAt", "desc")); const s = await getDocs(q); setExpenses(s.docs.map(d => ({ id: d.id, ...d.data() }))); };
-  
   const fetchTickets = async () => { const q = query(collection(db, "support_tickets"), orderBy("createdAt", "desc")); const s = await getDocs(q); setTickets(s.docs.map(d => ({ id: d.id, ...d.data() }))); };
+  
   const markTicketAsRead = async (ticket) => { const newStatus = ticket.status === 'pending' ? 'resolved' : 'pending'; await updateDoc(doc(db, "support_tickets", ticket.id), { status: newStatus }); fetchTickets(); showToast(newStatus === 'resolved' ? "Marcado como atendido" : "Marcado como pendiente", "info"); };
   const deleteTicket = async (id) => { if(!confirm("¿Eliminar este mensaje?")) return; await deleteDoc(doc(db, "support_tickets", id)); fetchTickets(); showToast("Mensaje eliminado", "error"); };
 
   const handleAddExpense = async (e) => { e.preventDefault(); if (!newExpense.description || !newExpense.amount || !newExpense.date) return showToast("Faltan datos", "error"); const expenseDate = new Date(newExpense.date + 'T12:00:00'); await addDoc(collection(db, "expenses"), { ...newExpense, amount: Number(newExpense.amount), createdAt: expenseDate.toISOString() }); setNewExpense({ description: '', amount: '', date: new Date().toISOString().split('T')[0] }); fetchExpenses(); showToast("Gasto Agregado", "warning"); };
   const handleDeleteExpense = async (id) => { if(confirm("¿Borrar gasto?")) { await deleteDoc(doc(db, "expenses", id)); fetchExpenses(); } };
+  
   const handleDeleteReport = async (ordersList, expensesList, dateLabel) => { if (!window.confirm(`¿Borrar historial del ${dateLabel}?`)) return; setLoading(true); try { await Promise.all([...ordersList.map(o => deleteDoc(doc(db, "orders", o.id))), ...expensesList.map(e => deleteDoc(doc(db, "expenses", e.id)))]); showToast("Eliminado", 'success'); fetchOrders(); fetchExpenses(); } catch (e) { showToast("Error", 'error'); } setLoading(false); };
-  const generateDailyReport = (date, dailyOrders, dailyExpenses) => { const doc = new jsPDF(); doc.text(`Reporte - ${date}`, 14, 15); autoTable(doc, { head: [['Hora', 'Cliente', 'Tipo', 'Pago', 'Total']], body: dailyOrders.map(o => [new Date(o.createdAt).toLocaleTimeString(), o.userName, o.type, o.paymentMethod, `$${o.total}`]), startY: 20 }); const inc = dailyOrders.reduce((s,o)=>s+o.total,0); const exp = dailyExpenses.reduce((s,e)=>s+e.amount,0); let finalY = doc.lastAutoTable.finalY + 10; doc.text(`Ingresos: $${inc}`, 14, finalY); if(dailyExpenses.length>0){ finalY += 10; doc.text(`Gastos: -$${exp}`, 14, finalY); } finalY += 15; doc.text(`NETO: $${inc-exp}`, 14, finalY); doc.save(`Reporte_${date}.pdf`); };
+  
+  // PDF Modificado (Sin propinas)
+  const generateDailyReport = (date, dailyOrders, dailyExpenses) => { 
+      const doc = new jsPDF(); doc.text(`Reporte - ${date}`, 14, 15); 
+      autoTable(doc, { 
+          head: [['Hora', 'Cliente', 'Tipo', 'Pago', 'Total (Comida)']], 
+          body: dailyOrders.map(o => [new Date(o.createdAt).toLocaleTimeString(), o.userName, o.type, o.paymentMethod, `$${o.total - (o.serviceFee || 0)}`]), 
+          startY: 20 
+      }); 
+      const inc = dailyOrders.reduce((s,o)=>s + (o.total - (o.serviceFee || 0)),0); 
+      const exp = dailyExpenses.reduce((s,e)=>s+e.amount,0); 
+      let finalY = doc.lastAutoTable.finalY + 10; 
+      doc.text(`Ingresos (Neto Comida): $${inc}`, 14, finalY); 
+      if(dailyExpenses.length>0){ finalY += 10; doc.text(`Gastos: -$${exp}`, 14, finalY); } 
+      finalY += 15; doc.text(`NETO FINAL: $${inc-exp}`, 14, finalY); doc.save(`Reporte_${date}.pdf`); 
+  };
 
   const handleLogoUpload = async () => { if (!logoFile) return; const fd = new FormData(); fd.append("file", logoFile); fd.append("upload_preset", UPLOAD_PRESET); const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`, { method: "POST", body: fd }); const data = await res.json(); await setDoc(doc(db, "store_config", "main"), { logo: data.secure_url }, { merge: true }); showToast("Logo Actualizado", "success"); };
-  
   const updateTheme = async (theme) => { setCurrentTheme(theme); await setDoc(doc(db, "store_config", "main"), { theme: theme }, { merge: true }); showToast(`Tema cambiado: ${theme}`, "success"); };
-  const handleUpdatePhone = async () => { try { await setDoc(doc(db, "settings", "contact_info"), { phoneNumber: supportPhone }, { merge: true }); showToast("Teléfono de soporte actualizado", "success"); } catch (error) { console.error(error); showToast("Error al actualizar teléfono", "error"); } };
-  
+  const handleUpdatePhone = async () => { try { await setDoc(doc(db, "settings", "contact_info"), { phoneNumber: supportPhone }, { merge: true }); showToast("Teléfono de soporte actualizado", "success"); } catch (error) { console.error(error); showToast("Error", "error"); } };
   const fetchProducts = async () => { const s = await getDocs(collection(db, "products")); const data = s.docs.map(d => ({ id: d.id, ...d.data() })); data.sort((a, b) => a.name.localeCompare(b.name)); setProducts(data); };
   const fetchUsers = async () => { const s = await getDocs(collection(db, "users")); setUsers(s.docs.map(d => ({ id: d.id, ...d.data() }))); };
   
-  // --- FUNCIÓN EDITAR ROLES ---
-  const startEditUserRoles = (user) => {
-      setEditingUserRoles(user.id);
-  };
-
-  const saveUserRoles = async (uid, newRoles) => {
-      try {
-          const mainRole = newRoles.length > 0 ? newRoles[0] : 'cliente';
-          await updateDoc(doc(db, "users", uid), { 
-              roles: newRoles,
-              role: mainRole 
-          });
-          fetchUsers();
-          setEditingUserRoles(null);
-          showToast("Roles actualizados", 'success');
-      } catch (error) {
-          showToast("Error al guardar roles", 'error');
-      }
-  };
-
+  const startEditUserRoles = (user) => { setEditingUserRoles(user.id); };
+  const saveUserRoles = async (uid, newRoles) => { try { const mainRole = newRoles.length > 0 ? newRoles[0] : 'cliente'; await updateDoc(doc(db, "users", uid), { roles: newRoles, role: mainRole }); fetchUsers(); setEditingUserRoles(null); showToast("Roles actualizados", 'success'); } catch (error) { showToast("Error", 'error'); } };
   const toggleStore = async () => { try { const newState = !isStoreOpen; await setDoc(doc(db, "store_config", "main"), { isOpen: newState }, { merge: true }); showToast(newState ? "Local ABIERTO" : "Local CERRADO", newState ? 'success' : 'error'); } catch (error) { showToast("Error", 'error'); } };
   const handleUpdateConfig = async () => { setLoading(true); try { await setDoc(doc(db, "store_config", "main"), { tableCount: Number(tableCount), accounts: accounts }, { merge: true }); showToast("Guardado", 'success'); } catch (error) { showToast("Error", 'error'); } setLoading(false); };
-  
-  const handleAddAccount = async (e) => { e.preventDefault(); if(!newAccount.name || !newAccount.number) return showToast("Faltan datos", "error"); const updatedAccounts = [...accounts, { ...newAccount, id: Date.now() }]; setAccounts(updatedAccounts); try { await updateDoc(doc(db, "store_config", "main"), { accounts: updatedAccounts }); setNewAccount({ bank: 'BBVA', name: '', number: '' }); showToast("Cuenta agregada correctamente", "success"); } catch (error) { console.error(error); showToast("Error al guardar cuenta", "error"); } };
-  const handleDeleteAccount = async (id) => { const updatedAccounts = accounts.filter(acc => acc.id !== id); setAccounts(updatedAccounts); try { await updateDoc(doc(db, "store_config", "main"), { accounts: updatedAccounts }); showToast("Cuenta eliminada", "info"); } catch (error) { console.error(error); showToast("Error al eliminar", "error"); } };
-
+  const handleAddAccount = async (e) => { e.preventDefault(); if(!newAccount.name || !newAccount.number) return showToast("Faltan datos", "error"); const updatedAccounts = [...accounts, { ...newAccount, id: Date.now() }]; setAccounts(updatedAccounts); try { await updateDoc(doc(db, "store_config", "main"), { accounts: updatedAccounts }); setNewAccount({ bank: 'BBVA', name: '', number: '' }); showToast("Agregada", "success"); } catch (error) { showToast("Error", "error"); } };
+  const handleDeleteAccount = async (id) => { const updatedAccounts = accounts.filter(acc => acc.id !== id); setAccounts(updatedAccounts); try { await updateDoc(doc(db, "store_config", "main"), { accounts: updatedAccounts }); showToast("Eliminada", "info"); } catch (error) { showToast("Error", "error"); } };
   const handleCardInput = (e) => { let val = e.target.value.replace(/\D/g, ''); if (val.length > 18) val = val.slice(0, 18); val = val.replace(/(\d{4})(?=\d)/g, '$1 '); setNewAccount({ ...newAccount, number: val }); };
 
-  const groupedData = orders.reduce((acc, order) => { const date = new Date(order.createdAt).toLocaleDateString(); if (!acc[date]) acc[date] = { orders: [], expenses: [] }; acc[date].orders.push(order); return acc; }, {});
-  expenses.forEach(exp => { const date = new Date(exp.createdAt).toLocaleDateString(); if (!groupedData[date]) groupedData[date] = { orders: [], expenses: [] }; groupedData[date].expenses.push(exp); });
-  const sortedDates = Object.keys(groupedData).sort((a, b) => { const [dA, mA, yA] = a.split('/'); const [dB, mB, yB] = b.split('/'); return new Date(yB, mB - 1, dB) - new Date(yA, mA - 1, dA); });
+  // --- LÓGICA DE AGRUPACIÓN (FINANZAS) ---
+  const groupedData = orders.reduce((acc, order) => { 
+      const date = new Date(order.createdAt).toLocaleDateString(); 
+      if (!acc[date]) acc[date] = { orders: [], expenses: [] }; 
+      acc[date].orders.push(order); 
+      return acc; 
+  }, {});
+  expenses.forEach(exp => { 
+      const date = new Date(exp.createdAt).toLocaleDateString(); 
+      if (!groupedData[date]) groupedData[date] = { orders: [], expenses: [] }; 
+      groupedData[date].expenses.push(exp); 
+  });
+  const sortedDates = Object.keys(groupedData).sort((a, b) => { 
+      const [dA, mA, yA] = a.split('/'); const [dB, mB, yB] = b.split('/'); 
+      return new Date(yB, mB - 1, dB) - new Date(yA, mA - 1, dA); 
+  });
 
-  // --- COLORES DE ETIQUETAS MEJORADOS ---
   const getRoleBadgeColor = (role) => {
     switch(role) {
         case 'admin': return 'bg-red-900/50 text-red-300 border border-red-800';
@@ -238,14 +259,15 @@ export default function AdminDashboard() {
       </div>
 
       <div className="flex border-b border-zinc-700 mb-6 overflow-x-auto whitespace-nowrap bg-zinc-800 rounded-t-lg shadow-sm">
+        {/* TABS LIMPIOS (Sin Registros) */}
         {['menu', 'roles', 'finanzas', 'buzon', 'config'].map((tab) => (
             <button key={tab} onClick={() => setActiveTab(tab)} className={`flex-shrink-0 px-6 py-3 font-bold uppercase text-xs border-b-4 transition ${activeTab === tab ? 'border-yellow-500 text-yellow-500 bg-zinc-700' : 'border-transparent text-gray-400 hover:bg-zinc-700 hover:text-white'}`}>{tab === 'buzon' ? '📩 BUZÓN' : tab}</button>
         ))}
       </div>
 
+      {/* MENU */}
       {activeTab === 'menu' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* ... Formulario de productos (SIN CAMBIOS) ... */}
             <div className="bg-zinc-800 p-4 md:p-6 rounded-lg shadow-md h-fit border border-zinc-700">
                 <div className="flex justify-between mb-4 border-b border-zinc-700 pb-2"><h2 className="font-bold text-lg text-white">{isEditing ? '✏️ Editando' : '➕ Nuevo Producto'}</h2>{isEditing && <button onClick={cancelEdit} className="text-red-400 text-xs underline">Cancelar</button>}</div>
                 <form onSubmit={handleSaveProduct} className="flex flex-col gap-4">
@@ -263,129 +285,57 @@ export default function AdminDashboard() {
                             <h4 className="font-bold text-sm text-white border-b border-zinc-600 pb-2 flex items-center gap-2"><FaCogs/> Personalización</h4>
                             {isBurger && (
                                 <>
-                                    <div className="flex items-center gap-2 mb-2 text-white text-sm bg-zinc-800 p-2 rounded border border-zinc-600">
-                                        <input type="checkbox" checked={productForm.allowMeatSwap} onChange={e => setProductForm({...productForm, allowMeatSwap: e.target.checked})} className="w-4 h-4 accent-yellow-500" /> <span>¿Permitir elegir tipo de carne? (Pechuga/Tiras)</span>
-                                    </div>
-                                    <div className="flex items-center gap-2 mb-2 text-white text-sm bg-zinc-800 p-2 rounded border border-zinc-600">
-                                        <input type="checkbox" checked={productForm.allowExtraSnacks} onChange={e => setProductForm({...productForm, allowExtraSnacks: e.target.checked})} className="w-4 h-4 accent-yellow-500" /> <span>¿Permitir agregar Piezas Extra? (Alitas/Boneless)</span>
-                                    </div>
+                                    <div className="flex items-center gap-2 mb-2 text-white text-sm bg-zinc-800 p-2 rounded border border-zinc-600"><input type="checkbox" checked={productForm.allowMeatSwap} onChange={e => setProductForm({...productForm, allowMeatSwap: e.target.checked})} className="w-4 h-4 accent-yellow-500" /> <span>¿Permitir elegir tipo de carne? (Pechuga/Tiras)</span></div>
+                                    <div className="flex items-center gap-2 mb-2 text-white text-sm bg-zinc-800 p-2 rounded border border-zinc-600"><input type="checkbox" checked={productForm.allowExtraSnacks} onChange={e => setProductForm({...productForm, allowExtraSnacks: e.target.checked})} className="w-4 h-4 accent-yellow-500" /> <span>¿Permitir agregar Piezas Extra? (Alitas/Boneless)</span></div>
                                 </>
                             )}
-                            {isHotDog && (
-                                <div className="bg-orange-900/30 p-3 rounded border border-orange-700/50 mb-2">
-                                    <div className="flex items-center gap-2 mb-2 text-white text-sm font-bold">
-                                        <input type="checkbox" checked={productForm.hasComboOption} onChange={e => setProductForm({...productForm, hasComboOption: e.target.checked})} /> Habilitar Opción de Combo
-                                    </div>
-                                </div>
-                            )}
+                            {isHotDog && (<div className="bg-orange-900/30 p-3 rounded border border-orange-700/50 mb-2"><div className="flex items-center gap-2 mb-2 text-white text-sm font-bold"><input type="checkbox" checked={productForm.hasComboOption} onChange={e => setProductForm({...productForm, hasComboOption: e.target.checked})} /> Habilitar Opción de Combo</div></div>)}
                             {needsStandardIngredients && (
                                 <div className="bg-zinc-700 p-2 rounded border border-zinc-600">
                                     <p className="text-xs font-bold mb-1 text-white">Ingredientes Base (Ej: Cebolla, Tomate):</p>
                                     <div className="flex gap-2 mb-1"><input className="flex-1 p-2 border rounded text-xs w-full bg-zinc-600 text-white border-zinc-500" placeholder="Ej: Cebolla" value={tempStandard} onChange={e=>setTempStandard(e.target.value)}/><button type="button" onClick={addStandardIngredient} className="bg-blue-600 text-white px-3 rounded">+</button></div>
                                     <div className="flex flex-wrap gap-1 mb-2">{productForm.standardIngredients?.map((item,i)=><span key={i} className="text-xs bg-zinc-500 text-white px-2 py-1 rounded flex items-center gap-1">{item}<FaTimes onClick={()=>removeFromList('standardIngredients',i)} className="cursor-pointer"/></span>)}</div>
-                                    <div className="flex flex-col md:flex-row items-start md:items-center gap-2 text-xs text-gray-300"><span className="">Precio Ingrediente Extra: $</span><input type="number" className="w-20 p-2 border rounded bg-zinc-600 text-white border-zinc-500" value={productForm.standardIngredientsPrice} onChange={e=>setProductForm({...productForm, standardIngredientsPrice:Number(e.target.value)})}/></div>
+                                    <div className="flex flex-col md:flex-row items-start md:items-center gap-2 text-xs text-gray-300"><span>Precio Ingrediente Extra: $</span><input type="number" className="w-20 p-2 border rounded bg-zinc-600 text-white border-zinc-500" value={productForm.standardIngredientsPrice} onChange={e=>setProductForm({...productForm, standardIngredientsPrice:Number(e.target.value)})}/></div>
                                 </div>
                             )}
                             {isFrappe && (
                                 <div className="bg-purple-900/30 p-3 rounded border border-purple-700/50 mt-2">
                                     <p className="text-xs font-bold text-purple-200 mb-2 flex items-center gap-1"><FaGlassWhiskey/> Configuración Frappe</p>
-                                    <div className="flex items-center gap-2 mb-2 text-white text-sm">
-                                        <input type="checkbox" checked={productForm.hasTapiocaOption} onChange={e => setProductForm({...productForm, hasTapiocaOption: e.target.checked})} /> Habilitar Tapioca
-                                    </div>
-                                    {productForm.hasTapiocaOption && (
-                                        <div className="flex items-center gap-2 text-xs text-gray-300">
-                                            <span>Precio Extra Tapioca: $</span>
-                                            <input type="number" className="w-20 p-1 rounded bg-zinc-700 text-white border border-zinc-600" value={productForm.tapiocaPrice} onChange={e=>setProductForm({...productForm, tapiocaPrice:Number(e.target.value)})}/>
-                                        </div>
-                                    )}
+                                    <div className="flex items-center gap-2 mb-2 text-white text-sm"><input type="checkbox" checked={productForm.hasTapiocaOption} onChange={e => setProductForm({...productForm, hasTapiocaOption: e.target.checked})} /> Habilitar Tapioca</div>
+                                    {productForm.hasTapiocaOption && (<div className="flex items-center gap-2 text-xs text-gray-300"><span>Precio Extra Tapioca: $</span><input type="number" className="w-20 p-1 rounded bg-zinc-700 text-white border border-zinc-600" value={productForm.tapiocaPrice} onChange={e=>setProductForm({...productForm, tapiocaPrice:Number(e.target.value)})}/></div>)}
                                 </div>
                             )}
-                            {isAguas && (
-                                <div className="bg-blue-900/30 p-3 rounded border border-blue-700/50 mt-2">
-                                    <p className="text-xs font-bold text-blue-200 mb-2 flex items-center gap-1"><FaSnowflake/> Configuración Agua</p>
-                                    <div className="flex items-center gap-2 text-white text-sm">
-                                        <input type="checkbox" checked={productForm.hasIceOption} onChange={e => setProductForm({...productForm, hasIceOption: e.target.checked})} /> Habilitar elección de Hielo
-                                    </div>
-                                </div>
-                            )}
-                            {isEmbotellado && (
-                                <div className="bg-cyan-900/30 p-3 rounded border border-cyan-700/50 mt-2">
-                                    <p className="text-xs font-bold text-cyan-200 mb-2 flex items-center gap-1"><FaThermometerHalf/> Configuración Botella</p>
-                                    <div className="flex items-center gap-2 text-white text-sm">
-                                        <input type="checkbox" checked={productForm.hasTempOption} onChange={e => setProductForm({...productForm, hasTempOption: e.target.checked})} /> Habilitar elección Temperatura
-                                    </div>
-                                </div>
-                            )}
+                            {isAguas && (<div className="bg-blue-900/30 p-3 rounded border border-blue-700/50 mt-2"><p className="text-xs font-bold text-blue-200 mb-2 flex items-center gap-1"><FaSnowflake/> Configuración Agua</p><div className="flex items-center gap-2 text-white text-sm"><input type="checkbox" checked={productForm.hasIceOption} onChange={e => setProductForm({...productForm, hasIceOption: e.target.checked})} /> Habilitar elección de Hielo</div></div>)}
+                            {isEmbotellado && (<div className="bg-cyan-900/30 p-3 rounded border border-cyan-700/50 mt-2"><p className="text-xs font-bold text-cyan-200 mb-2 flex items-center gap-1"><FaThermometerHalf/> Configuración Botella</p><div className="flex items-center gap-2 text-white text-sm"><input type="checkbox" checked={productForm.hasTempOption} onChange={e => setProductForm({...productForm, hasTempOption: e.target.checked})} /> Habilitar elección Temperatura</div></div>)}
                             {needsCoatingSauces && (
                                 <div className="bg-zinc-700 p-2 rounded border border-zinc-600 mt-2">
                                     <p className="text-xs font-bold mb-1 text-white">Salsas para Bañar (Sabores):</p>
-                                    <div className="flex gap-2 mb-1">
-                                        <input className="flex-1 p-2 border rounded text-xs w-full bg-zinc-600 text-white border-zinc-500" placeholder="Ej: BBQ, Mango Habanero" value={tempSauce} onChange={e=>setTempSauce(e.target.value)}/>
-                                        <button type="button" onClick={addSauceOption} className="bg-yellow-600 text-white px-3 rounded">+</button>
-                                    </div>
-                                    <div className="flex flex-wrap gap-1">
-                                        {productForm.sauceOptions?.map((item,i)=>(
-                                            <span key={i} className="text-xs bg-yellow-900/50 text-yellow-200 border border-yellow-700 px-2 py-1 rounded flex items-center gap-1">
-                                                {item}<FaTimes onClick={()=>removeFromList('sauceOptions',i)} className="cursor-pointer"/>
-                                            </span>
-                                        ))}
-                                    </div>
+                                    <div className="flex gap-2 mb-1"><input className="flex-1 p-2 border rounded text-xs w-full bg-zinc-600 text-white border-zinc-500" placeholder="Ej: BBQ, Mango Habanero" value={tempSauce} onChange={e=>setTempSauce(e.target.value)}/><button type="button" onClick={addSauceOption} className="bg-yellow-600 text-white px-3 rounded">+</button></div>
+                                    <div className="flex flex-wrap gap-1">{productForm.sauceOptions?.map((item,i)=>(<span key={i} className="text-xs bg-yellow-900/50 text-yellow-200 border border-yellow-700 px-2 py-1 rounded flex items-center gap-1">{item}<FaTimes onClick={()=>removeFromList('sauceOptions',i)} className="cursor-pointer"/></span>))}</div>
                                 </div>
                             )}
                             {needsExtraSaucesConfig && (
                                 <div className="bg-zinc-800 p-2 rounded border border-zinc-600 mt-3 relative overflow-hidden">
                                     <div className="absolute top-0 right-0 bg-green-700 text-white text-[9px] px-2 py-1 rounded-bl font-bold">EXTRAS</div>
                                     <p className="text-xs font-bold mb-1 text-white">🥣 Salsas Extras (Botecitos):</p>
-                                    <div className="flex gap-2 mb-2 items-end">
-                                        <div className="flex-1">
-                                            <label className="text-[10px] text-gray-400">Nombres Disponibles:</label>
-                                            <div className="flex gap-1">
-                                                <input className="flex-1 p-2 border rounded text-xs bg-zinc-700 text-white border-zinc-500" placeholder="Ej: Ranch, Chipotle" value={tempExtraSauce} onChange={e=>setTempExtraSauce(e.target.value)}/>
-                                                <button type="button" onClick={addExtraSauceName} className="bg-green-600 text-white px-3 rounded">+</button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div className="flex flex-wrap gap-1 mb-2">
-                                        {productForm.extraSauceNames?.map((item,i)=>(
-                                            <span key={i} className="text-xs bg-green-900/50 text-green-200 border border-green-700 px-2 py-1 rounded flex items-center gap-1">
-                                                {item}<FaTimes onClick={()=>removeFromList('extraSauceNames',i)} className="cursor-pointer"/>
-                                            </span>
-                                        ))}
-                                    </div>
-                                    <div className="flex items-center gap-2 text-xs text-gray-300 border-t border-zinc-600 pt-2">
-                                        <span>Precio Botecito Extra: $</span>
-                                        <input type="number" className="w-20 p-2 border rounded bg-zinc-700 text-white border-zinc-500 font-bold text-center" value={productForm.extraSaucePotPrice} onChange={e=>setProductForm({...productForm, extraSaucePotPrice:Number(e.target.value)})}/>
-                                    </div>
+                                    <div className="flex gap-2 mb-2 items-end"><div className="flex-1"><label className="text-[10px] text-gray-400">Nombres Disponibles:</label><div className="flex gap-1"><input className="flex-1 p-2 border rounded text-xs bg-zinc-700 text-white border-zinc-500" placeholder="Ej: Ranch, Chipotle" value={tempExtraSauce} onChange={e=>setTempExtraSauce(e.target.value)}/><button type="button" onClick={addExtraSauceName} className="bg-green-600 text-white px-3 rounded">+</button></div></div></div>
+                                    <div className="flex flex-wrap gap-1 mb-2">{productForm.extraSauceNames?.map((item,i)=>(<span key={i} className="text-xs bg-green-900/50 text-green-200 border border-green-700 px-2 py-1 rounded flex items-center gap-1">{item}<FaTimes onClick={()=>removeFromList('extraSauceNames',i)} className="cursor-pointer"/></span>))}</div>
+                                    <div className="flex items-center gap-2 text-xs text-gray-300 border-t border-zinc-600 pt-2"><span>Precio Botecito Extra: $</span><input type="number" className="w-20 p-2 border rounded bg-zinc-700 text-white border-zinc-500 font-bold text-center" value={productForm.extraSaucePotPrice} onChange={e=>setProductForm({...productForm, extraSaucePotPrice:Number(e.target.value)})}/></div>
                                 </div>
                             )}
-                            {needsPieceConfig && (
-                                <div className="grid grid-cols-1 gap-2 text-xs text-gray-300 mt-2">
-                                    <div className="flex items-center gap-2">
-                                        <span>Precio Pieza Extra (Alita/Tira): $</span>
-                                        <input type="number" className="flex-1 p-2 border rounded bg-zinc-600 text-white border-zinc-500" value={productForm.pricePerExtraPiece} onChange={e=>setProductForm({...productForm, pricePerExtraPiece:Number(e.target.value)})}/>
-                                    </div>
-                                </div>
-                            )}
+                            {needsPieceConfig && (<div className="grid grid-cols-1 gap-2 text-xs text-gray-300 mt-2"><div className="flex items-center gap-2"><span>Precio Pieza Extra (Alita/Tira): $</span><input type="number" className="flex-1 p-2 border rounded bg-zinc-600 text-white border-zinc-500" value={productForm.pricePerExtraPiece} onChange={e=>setProductForm({...productForm, pricePerExtraPiece:Number(e.target.value)})}/></div></div>)}
                         </div>
                     )}
                     <button disabled={loading} className={`text-white p-3 rounded font-bold shadow w-full ${isEditing?'bg-blue-600':'bg-green-600'}`}>{loading?'...':(isEditing?'Actualizar':'Crear')}</button>
                 </form>
             </div>
-            
             <div className="bg-zinc-800 p-4 rounded-lg shadow-md border border-zinc-700">
                 <h2 className="font-bold mb-4 text-white">Inventario</h2>
                 <div className="overflow-y-auto max-h-[500px] md:max-h-[600px] space-y-2 pr-1">
                     {products.map(p => (
                         <div key={p.id} className="flex flex-col sm:flex-row justify-between sm:items-center p-3 border rounded border-zinc-700 gap-2 bg-zinc-900/50">
-                            <div className="flex gap-3 items-center">
-                                <img src={p.image} className="w-12 h-12 rounded object-cover border border-zinc-600 flex-shrink-0" />
-                                <div><p className="font-bold text-sm text-white leading-tight">{p.name}</p><p className="text-xs text-gray-400">${p.price}</p></div>
-                            </div>
-                            <div className="flex gap-2 justify-end sm:justify-start">
-                                <button onClick={()=>startEditProduct(p)} className="text-blue-400 p-2 bg-blue-900/30 rounded hover:bg-blue-900/50"><FaEdit/></button>
-                                <button onClick={()=>toggleProductStock(p)} className={`px-2 py-1 text-[10px] rounded border uppercase font-bold ${p.inStock?'bg-green-900/30 text-green-400 border-green-800':'bg-red-900/30 text-red-400 border-red-800'}`}>{p.inStock?'Stock':'Agotado'}</button>
-                                <button onClick={()=>handleDeleteProduct(p.id)} className="text-red-400 p-2 bg-red-900/30 rounded hover:bg-red-900/50"><FaTrash/></button>
-                            </div>
+                            <div className="flex gap-3 items-center"><img src={p.image} className="w-12 h-12 rounded object-cover border border-zinc-600 flex-shrink-0" /><div><p className="font-bold text-sm text-white leading-tight">{p.name}</p><p className="text-xs text-gray-400">${p.price}</p></div></div>
+                            <div className="flex gap-2 justify-end sm:justify-start"><button onClick={()=>startEditProduct(p)} className="text-blue-400 p-2 bg-blue-900/30 rounded hover:bg-blue-900/50"><FaEdit/></button><button onClick={()=>toggleProductStock(p)} className={`px-2 py-1 text-[10px] rounded border uppercase font-bold ${p.inStock?'bg-green-900/30 text-green-400 border-green-800':'bg-red-900/30 text-red-400 border-red-800'}`}>{p.inStock?'Stock':'Agotado'}</button><button onClick={()=>handleDeleteProduct(p.id)} className="text-red-400 p-2 bg-red-900/30 rounded hover:bg-red-900/50"><FaTrash/></button></div>
                         </div>
                     ))}
                 </div>
@@ -393,70 +343,21 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* --- PESTAÑA ROLES ACTUALIZADA --- */}
+      {/* ROLES */}
       {activeTab === 'roles' && (
         <div className="bg-zinc-800 p-4 md:p-6 rounded-lg shadow-md border border-zinc-700">
            <h2 className="font-bold text-white mb-4 flex items-center gap-2"><FaUserTag /> Gestión de Roles y Permisos</h2>
            <div className="overflow-x-auto w-full">
              <table className="w-full text-left min-w-[600px] border-collapse">
-               <thead>
-                   <tr className="bg-zinc-700 text-yellow-400 text-xs">
-                       <th className="p-3 rounded-tl-lg">Usuario</th>
-                       <th className="p-3">Roles Activos</th>
-                       <th className="p-3 rounded-tr-lg text-right">Acciones</th>
-                   </tr>
-               </thead>
+               <thead><tr className="bg-zinc-700 text-yellow-400 text-xs"><th className="p-3 rounded-tl-lg">Usuario</th><th className="p-3">Roles Activos</th><th className="p-3 rounded-tr-lg text-right">Acciones</th></tr></thead>
                <tbody>
                    {users.map(u => {
                        const userRoles = u.roles || (u.role ? [u.role] : []);
                        const isEditingThisUser = editingUserRoles === u.id;
-
                        return (
                            <tr key={u.id} className="border-b border-zinc-700 hover:bg-zinc-700/30 transition group">
-                               <td className="p-3 align-middle">
-                                   <div className="flex items-center gap-3">
-                                        <div className="w-10 h-10 rounded-full bg-zinc-600 flex items-center justify-center text-lg font-bold text-yellow-500 border-2 border-zinc-500 overflow-hidden">
-                                            {u.photoURL ? <img src={u.photoURL} className="w-full h-full object-cover"/> : u.displayName?.charAt(0).toUpperCase() || 'U'}
-                                        </div>
-                                        <div>
-                                            <p className="font-bold text-white text-sm">{u.displayName || 'Sin Nombre'}</p>
-                                            <p className="text-xs text-gray-400">{u.email}</p>
-                                        </div>
-                                   </div>
-                               </td>
-                               {/* SI SE ESTÁ EDITANDO, OCUPAMOS LAS DOS CELDAS RESTANTES CON EL EDITOR */}
-                               {isEditingThisUser ? (
-                                   <td colSpan="2" className="p-2">
-                                        <UserRoleEditor 
-                                            user={u}
-                                            roleOptions={ROLES_OPTIONS}
-                                            onSave={(newRoles) => saveUserRoles(u.id, newRoles)}
-                                            onCancel={() => setEditingUserRoles(null)}
-                                        />
-                                   </td>
-                               ) : (
-                                   <>
-                                       <td className="p-3 align-middle">
-                                            <div className="flex flex-wrap gap-2">
-                                                {userRoles.length > 0 ? userRoles.map(r => (
-                                                    <span key={r} className={`px-3 py-1 rounded-full text-[10px] uppercase font-bold tracking-wider ${getRoleBadgeColor(r)} shadow-sm`}>
-                                                        {r}
-                                                    </span>
-                                                )) : (
-                                                    <span className="text-gray-500 text-xs italic">Sin roles asignados</span>
-                                                )}
-                                            </div>
-                                       </td>
-                                       <td className="p-3 align-middle text-right">
-                                           <button 
-                                                onClick={() => startEditUserRoles(u)} 
-                                                className="text-yellow-500 hover:text-yellow-400 hover:bg-yellow-500/10 px-3 py-2 rounded-lg transition flex items-center gap-2 ml-auto font-bold text-xs border border-yellow-500/30 hover:border-yellow-500"
-                                           >
-                                               <FaUserTag /> Editar Roles
-                                           </button>
-                                       </td>
-                                   </>
-                               )}
+                               <td className="p-3 align-middle"><div className="flex items-center gap-3"><div className="w-10 h-10 rounded-full bg-zinc-600 flex items-center justify-center text-lg font-bold text-yellow-500 border-2 border-zinc-500 overflow-hidden">{u.photoURL ? <img src={u.photoURL} className="w-full h-full object-cover"/> : u.displayName?.charAt(0).toUpperCase() || 'U'}</div><div><p className="font-bold text-white text-sm">{u.displayName || 'Sin Nombre'}</p><p className="text-xs text-gray-400">{u.email}</p></div></div></td>
+                               {isEditingThisUser ? (<td colSpan="2" className="p-2"><UserRoleEditor user={u} roleOptions={ROLES_OPTIONS} onSave={(newRoles) => saveUserRoles(u.id, newRoles)} onCancel={() => setEditingUserRoles(null)} /></td>) : (<><td className="p-3 align-middle"><div className="flex flex-wrap gap-2">{userRoles.length > 0 ? userRoles.map(r => (<span key={r} className={`px-3 py-1 rounded-full text-[10px] uppercase font-bold tracking-wider ${getRoleBadgeColor(r)} shadow-sm`}>{r}</span>)) : (<span className="text-gray-500 text-xs italic">Sin roles asignados</span>)}</div></td><td className="p-3 align-middle text-right"><button onClick={() => startEditUserRoles(u)} className="text-yellow-500 hover:text-yellow-400 hover:bg-yellow-500/10 px-3 py-2 rounded-lg transition flex items-center gap-2 ml-auto font-bold text-xs border border-yellow-500/30 hover:border-yellow-500"><FaUserTag /> Editar Roles</button></td></>)}
                            </tr>
                        );
                    })}
@@ -466,41 +367,88 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* RESTO DE TABS (FINANZAS, BUZON, CONFIG) SE MANTIENEN IGUAL... */}
+      {/* FINANZAS (Dinero Real Sin Propinas + Para Llevar) */}
       {activeTab === 'finanzas' && (
         <div className="space-y-6">
-            <div className="bg-red-900/20 p-4 rounded-lg border border-red-800 flex flex-col gap-3">
-                <span className="font-bold text-red-300 flex items-center gap-2"><FaMoneyBillWave/> Registrar Gasto:</span>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                    <input type="date" className="p-3 rounded border text-sm bg-zinc-700 text-white border-zinc-600 w-full" value={newExpense.date} onChange={e => setNewExpense({...newExpense, date: e.target.value})} />
-                    <input placeholder="Descripción" className="p-3 rounded border text-sm w-full md:col-span-2 bg-zinc-700 text-white border-zinc-600 placeholder-gray-400" value={newExpense.description} onChange={e=>setNewExpense({...newExpense, description:e.target.value})}/>
+            <div className="bg-zinc-800 p-4 rounded-lg border border-red-900/30">
+                <h3 className="text-red-400 font-bold mb-3 flex items-center gap-2"><FaMoneyBillWave/> Registrar Gasto Manual</h3>
+                <div className="flex flex-col md:flex-row gap-3">
+                    <input type="date" className="p-3 rounded border text-sm bg-zinc-700 text-white border-zinc-600" value={newExpense.date} onChange={e => setNewExpense({...newExpense, date: e.target.value})} />
+                    <input placeholder="Descripción del Gasto" className="p-3 rounded border text-sm flex-1 bg-zinc-700 text-white border-zinc-600 placeholder-gray-400" value={newExpense.description} onChange={e=>setNewExpense({...newExpense, description:e.target.value})}/>
                     <div className="flex gap-2">
-                        <input type="number" placeholder="$" className="w-full p-3 rounded border text-sm bg-zinc-700 text-white border-zinc-600 placeholder-gray-400" value={newExpense.amount} onChange={e=>setNewExpense({...newExpense, amount:e.target.value})}/>
-                        <button onClick={handleAddExpense} className="bg-red-600 text-white px-4 rounded font-bold hover:bg-red-700 flex-shrink-0">OK</button>
+                        <input type="number" placeholder="$ Monto" className="w-full md:w-32 p-3 rounded border text-sm bg-zinc-700 text-white border-zinc-600 placeholder-gray-400" value={newExpense.amount} onChange={e=>setNewExpense({...newExpense, amount:e.target.value})}/>
+                        <button onClick={handleAddExpense} className="bg-red-600 text-white px-4 rounded font-bold hover:bg-red-700 flex-shrink-0">Guardar</button>
                     </div>
                 </div>
             </div>
 
             {sortedDates.map(date => {
                 const dayData = groupedData[date];
-                const income = dayData.orders.reduce((sum, o) => sum + o.total, 0);
+                
+                // Ignoramos los cancelados para el corte financiero
+                const validOrders = dayData.orders.filter(o => o.status !== 'cancelado');
+                
+                // CÁLCULO NETO DE COMIDA (Se resta la propina - serviceFee)
+                const income = validOrders.reduce((sum, o) => sum + (o.total - (o.serviceFee || 0)), 0);
+                
                 const expenseSum = dayData.expenses.reduce((sum, e) => sum + e.amount, 0);
                 const net = income - expenseSum;
+                
                 return (
                     <div key={date} className="bg-zinc-800 p-4 rounded-lg shadow-md border border-zinc-700">
                         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 border-b border-zinc-700 pb-4 gap-3">
-                            <div><h3 className="text-xl font-bold text-white">{date}</h3><p className="text-sm text-gray-400">{dayData.orders.length} pedidos</p></div>
-                            <div className="w-full md:w-auto flex flex-col md:items-end bg-zinc-700 p-2 rounded"><p className="text-sm text-green-400 font-bold">Ingreso: +${income}</p><p className="text-sm text-red-400 font-bold">Gastos: -${expenseSum}</p><p className={`text-xl font-black ${net >= 0 ? 'text-green-500' : 'text-red-500'}`}>Neto: ${net}</p></div>
-                            <div className="flex gap-2 w-full md:w-auto"><button onClick={() => generateDailyReport(date, dayData.orders, dayData.expenses)} className="flex-1 bg-blue-600 text-white px-3 py-2 rounded flex justify-center items-center gap-2 hover:bg-blue-700"><FaFilePdf/> PDF</button><button onClick={() => handleDeleteReport(dayData.orders, dayData.expenses, date)} className="flex-1 bg-red-600 text-white px-3 py-2 rounded flex justify-center items-center gap-2 hover:bg-red-700"><FaTrash/></button></div>
+                            <div>
+                                <h3 className="text-xl font-bold text-white">{date}</h3>
+                                <p className="text-sm text-gray-400">{validOrders.length} pedidos pagados</p>
+                            </div>
+                            <div className="w-full md:w-auto flex flex-col md:items-end bg-zinc-900 p-3 rounded-lg border border-zinc-700">
+                                <p className="text-sm text-green-400 font-bold">Neto Comida: +${income}</p>
+                                <p className="text-sm text-red-400 font-bold">Gastos: -${expenseSum}</p>
+                                <p className={`text-xl font-black mt-1 pt-1 border-t border-zinc-700 ${net >= 0 ? 'text-green-500' : 'text-red-500'}`}>Caja Final: ${net}</p>
+                            </div>
+                            <div className="flex gap-2 w-full md:w-auto">
+                                <button onClick={() => generateDailyReport(date, validOrders, dayData.expenses)} className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg font-bold flex justify-center items-center gap-2 hover:bg-blue-700"><FaFilePdf/> Generar PDF</button>
+                                <button onClick={() => handleDeleteReport(dayData.orders, dayData.expenses, date)} className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition" title="Borrar Historial de este día"><FaTrash/></button>
+                            </div>
                         </div>
-                        {dayData.expenses.length > 0 && (<div className="mb-4 p-3 bg-red-900/20 rounded text-sm"><p className="font-bold text-red-300 mb-2">Gastos:</p>{dayData.expenses.map(exp => (<div key={exp.id} className="flex justify-between border-b border-red-800/50 last:border-0 py-2 text-gray-300"><span>{exp.description}</span><div className="flex gap-2 items-center"><span className="font-bold text-red-400">-${exp.amount}</span><button onClick={()=>handleDeleteExpense(exp.id)} className="text-red-400 p-1 hover:text-red-300"><FaTrash/></button></div></div>))}</div>)}
-                        <div className="text-sm text-gray-400 max-h-40 overflow-y-auto">{dayData.orders.map(o => <div key={o.id} className="flex justify-between py-1 border-b border-zinc-700 last:border-0"><span>{new Date(o.createdAt).toLocaleTimeString()} - {o.userName}</span><span className="font-bold text-white">${o.total}</span></div>)}</div>
+
+                        {/* LISTA DE GASTOS */}
+                        {dayData.expenses.length > 0 && (
+                            <div className="mb-4 p-3 bg-red-900/20 rounded-lg text-sm border border-red-900/30">
+                                <p className="font-bold text-red-300 mb-2">Gastos Registrados:</p>
+                                {dayData.expenses.map(exp => (
+                                    <div key={exp.id} className="flex justify-between border-b border-red-800/50 last:border-0 py-2 text-gray-300">
+                                        <span>{exp.description}</span>
+                                        <div className="flex gap-3 items-center">
+                                            <span className="font-bold text-red-400">-${exp.amount}</span>
+                                            <button onClick={()=>handleDeleteExpense(exp.id)} className="text-red-500 hover:text-red-300 transition"><FaTrash/></button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        {/* LISTA DE PEDIDOS */}
+                        <div className="text-sm text-gray-400 max-h-48 overflow-y-auto pr-2 mt-2">
+                            {validOrders.map(o => (
+                                <div key={o.id} className="flex justify-between py-2 border-b border-zinc-700/50 last:border-0">
+                                    <div>
+                                        <span className="text-gray-300 mr-2">{new Date(o.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                                        <span className="font-bold text-white">{o.userName}</span>
+                                        <span className="ml-2 text-[10px] uppercase bg-zinc-700 px-2 py-0.5 rounded text-gray-300">{o.type === 'para_llevar' || o.type === 'llevar' ? 'Para Llevar' : o.type}</span>
+                                    </div>
+                                    <span className="font-bold text-green-400">${o.total - (o.serviceFee || 0)}</span>
+                                </div>
+                            ))}
+                            {validOrders.length === 0 && <p className="text-center text-gray-500 py-4 italic">No hubo ventas registradas hoy.</p>}
+                        </div>
                     </div>
                 );
             })}
         </div>
       )}
 
+      {/* BUZÓN */}
       {activeTab === 'buzon' && (
           <div className="bg-zinc-800 p-4 md:p-6 rounded-lg shadow-md border border-zinc-700">
               <h2 className="font-bold mb-4 text-white flex items-center gap-2"><FaEnvelope/> Buzón de Quejas y Soporte</h2>
@@ -537,6 +485,7 @@ export default function AdminDashboard() {
           </div>
       )}
 
+      {/* CONFIG */}
       {activeTab === 'config' && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="bg-zinc-800 p-4 md:p-6 rounded-lg shadow-md border border-zinc-700">

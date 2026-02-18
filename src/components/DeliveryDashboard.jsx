@@ -1,188 +1,239 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { db, auth } from '../firebase/config';
-import { collection, query, where, onSnapshot, doc, updateDoc, orderBy } from 'firebase/firestore';
-import { FaMotorcycle, FaCheck, FaMapMarkerAlt, FaWhatsapp, FaHistory, FaChevronDown, FaChevronUp, FaMoneyBillWave } from 'react-icons/fa';
+import { collection, query, where, onSnapshot, doc, updateDoc } from 'firebase/firestore';
+import { FaMotorcycle, FaMapMarkerAlt, FaWhatsapp, FaTrash, FaCheck, FaMapSigns } from 'react-icons/fa';
 import { showToast } from '../stores/toastStore';
+import { onAuthStateChanged } from 'firebase/auth';
 
 export default function DeliveryDashboard() {
-  const [activeTab, setActiveTab] = useState('active');
   const [orders, setOrders] = useState([]);
-  const [historyOrders, setHistoryOrders] = useState([]);
   const [user, setUser] = useState(null);
-  const [expandedOrderId, setExpandedOrderId] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubAuth = auth.onAuthStateChanged((u) => setUser(u));
+    const unsubAuth = onAuthStateChanged(auth, (u) => setUser(u));
     return () => unsubAuth();
   }, []);
 
-  // 1. ACTIVOS
   useEffect(() => {
     const q = query(
       collection(db, "orders"),
-      where("status", "in", ["listo", "en_camino"]),
-      where("type", "==", "domicilio"),
-      orderBy("createdAt", "asc")
+      where("status", "in", ["listo", "en_camino"])
     );
+    
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      setOrders(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      
+      // FILTRO CORREGIDO: AHORA SOLO MUESTRA PEDIDOS "DOMICILIO"
+      const deliveryOrders = list.filter(order => order.type === 'domicilio');
+
+      deliveryOrders.sort((a, b) => {
+          const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt);
+          const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt);
+          return dateA - dateB;
+      });
+      
+      setOrders(deliveryOrders);
+      setLoading(false);
+    }, (error) => {
+        console.error("Error cargando repartos:", error);
+        setLoading(false);
     });
+
     return () => unsubscribe();
   }, []);
 
-  // 2. HISTORIAL DE HOY
-  useEffect(() => {
-    if (!user || activeTab !== 'history') return;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const todayISO = today.toISOString();
+  // --- BOTÓN UBICACIÓN: ABRIR RUTA EN GOOGLE MAPS ---
+  const openLocation = (order) => {
+      let destination = "";
 
-    const q = query(
-      collection(db, "orders"),
-      where("status", "==", "entregado"),
-      where("deliveredBy", "==", user.uid),
-      where("createdAt", ">=", todayISO),
-      orderBy("createdAt", "desc")
-    );
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setHistoryOrders(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
-    return () => unsubscribe();
-  }, [user, activeTab]);
+      // 1. Si el pedido guardó explícitamente latitud y longitud
+      if (order.location && order.location.lat && order.location.lng) {
+          destination = `${order.location.lat},${order.location.lng}`;
+      } 
+      // 2. Extraer coordenadas del texto si las hay
+      else if (order.detail) {
+          const regexCoord = /(-?\d+(\.\d+)?),\s*(-?\d+(\.\d+)?)/;
+          const match = order.detail.match(regexCoord);
+          
+          if (match) {
+              destination = `${match[1]},${match[3]}`;
+          } else {
+              // Si es solo texto puro (calle y colonia), lo codificamos
+              destination = encodeURIComponent(order.detail);
+          }
+      }
+
+      if (destination) {
+          // Genera el enlace correcto de la API de Google Maps para trazar la ruta
+          const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${destination}`;
+          window.open(mapsUrl, '_blank');
+      } else {
+          showToast("No hay ubicación válida", "error");
+      }
+  };
 
   const takeOrder = async (orderId) => {
       if (!user) return;
       try {
           await updateDoc(doc(db, "orders", orderId), { 
-              status: 'en_camino', deliveredBy: user.uid, deliveredByName: user.displayName || user.email 
+              status: 'en_camino', 
+              deliveredBy: user.uid, 
+              deliveredByName: user.displayName || user.email 
           });
-          showToast("¡Pedido asignado!", 'success');
-      } catch (error) { showToast("Error", 'error'); }
+          showToast("🛵 ¡Pedido asignado a ti!", 'success');
+      } catch (error) { showToast("Error al tomar pedido", 'error'); }
   };
 
   const completeOrder = async (orderId) => {
-      try { await updateDoc(doc(db, "orders", orderId), { status: 'entregado' }); showToast("¡Entregado!", 'success'); } 
-      catch (error) { showToast("Error", 'error'); }
+      if(!confirm("¿Confirmar que el pedido fue entregado y cobrado?")) return;
+      try { 
+          await updateDoc(doc(db, "orders", orderId), { status: 'entregado' }); 
+          showToast("✅ ¡Entrega completada!", 'success'); 
+      } catch (error) { showToast("Error al finalizar", 'error'); }
   };
 
-  const toggleExpand = (id) => setExpandedOrderId(expandedOrderId === id ? null : id);
+  const cancelOrder = async (orderId) => {
+      if(!confirm("¿Cancelar este pedido definitivamente?")) return;
+      try { 
+          await updateDoc(doc(db, "orders", orderId), { status: 'cancelado' }); 
+          showToast("🚫 Pedido Cancelado", 'error'); 
+      } catch (error) { showToast("Error al cancelar", 'error'); }
+  };
 
-  const totals = useMemo(() => {
-      let totalSold = 0;
-      let totalShipping = 0;
-      let cashOnHand = 0;
+  const visibleOrders = orders.filter(order => {
+      const isTakenByMe = order.deliveredBy === user?.uid;
+      const isTakenByOther = order.status === 'en_camino' && !isTakenByMe;
+      return !isTakenByOther; 
+  });
 
-      historyOrders.forEach(o => {
-          if (o.paymentMethod === 'efectivo') {
-              totalSold += o.total;
-              totalShipping += (o.serviceFee || 0); // serviceFee es el envío en Domicilio
-              cashOnHand += o.total;
-          }
-      });
-
-      return {
-          totalSold,
-          totalShipping,
-          payToBoss: cashOnHand - totalShipping // Le quita el envío
-      };
-  }, [historyOrders]);
+  if (loading) return <div className="p-10 text-center text-white animate-pulse">Cargando repartos...</div>;
 
   return (
     <div className="p-4 min-h-screen pb-20 bg-zinc-900 text-white">
       
-      <div className="flex justify-between items-center mb-6">
-          <h1 className="text-2xl font-black text-green-400 flex items-center gap-2">
-            {activeTab === 'active' ? <><FaMotorcycle /> Repartos</> : <><FaHistory /> Mi Registro</>}
+      {/* HEADER */}
+      <div className="flex justify-between items-center mb-6 bg-black p-4 rounded-xl border border-yellow-500/30 shadow-lg">
+          <h1 className="text-2xl font-black text-yellow-500 flex items-center gap-3">
+              <FaMotorcycle className="text-3xl" /> Repartos a Domicilio
           </h1>
-          <div className="bg-zinc-800 p-1 rounded-lg flex border border-zinc-700">
-              <button onClick={() => setActiveTab('active')} className={`px-4 py-2 rounded-md text-sm font-bold transition ${activeTab === 'active' ? 'bg-green-600 text-white shadow' : 'text-gray-400 hover:text-white'}`}>Activos</button>
-              <button onClick={() => setActiveTab('history')} className={`px-4 py-2 rounded-md text-sm font-bold transition ${activeTab === 'history' ? 'bg-yellow-600 text-white shadow' : 'text-gray-400 hover:text-white'}`}>Registro</button>
-          </div>
+          <span className="bg-yellow-500 text-black px-4 py-1.5 rounded-full font-black text-sm shadow-[0_0_10px_rgba(234,179,8,0.3)]">
+              {visibleOrders.length} {visibleOrders.length === 1 ? 'Pedido' : 'Pedidos'}
+          </span>
       </div>
 
-      {activeTab === 'active' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {orders.map(order => {
-                const isTakenByMe = order.deliveredBy === user?.uid;
-                const isTakenByOther = order.status === 'en_camino' && !isTakenByMe;
-                if (isTakenByOther) return null;
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {visibleOrders.map(order => {
+            const isTakenByMe = order.deliveredBy === user?.uid;
 
-                return (
-                    <div key={order.id} className={`rounded-xl border-2 shadow-lg overflow-hidden flex flex-col ${isTakenByMe ? 'bg-green-900/20 border-green-500' : 'bg-zinc-800 border-zinc-700'}`}>
-                        <div className={`p-3 font-bold flex justify-between items-center ${isTakenByMe ? 'bg-green-700 text-white' : 'bg-zinc-700 text-gray-300'}`}>
-                            <span>{isTakenByMe ? '🛵 En Curso' : '📦 Disponible'}</span>
-                            <span className="text-xs bg-black/20 px-2 py-1 rounded">{new Date(order.createdAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
-                        </div>
-                        <div className="p-4 flex-1 space-y-3">
-                            <div>
-                                <p className="font-bold text-white text-lg flex items-center gap-2">
-                                    {order.userName}
-                                    {order.userPhone && <a href={`https://wa.me/521${order.userPhone.replace(/\D/g,'')}`} target="_blank" className="text-green-400 bg-green-900/30 p-1 rounded-full text-xs"><FaWhatsapp /></a>}
-                                </p>
-                                <p className="text-sm text-gray-400 mt-1 flex items-start gap-2 bg-black/30 p-2 rounded"><FaMapMarkerAlt className="text-red-400 mt-1 flex-shrink-0"/> {order.detail}</p>
-                            </div>
-                            <div className="bg-zinc-900/50 p-2 rounded text-sm text-gray-300 max-h-32 overflow-y-auto">
-                                {order.items.map((item, i) => (
-                                    <div key={i} className="flex justify-between border-b border-zinc-700/50 pb-1 mb-1 last:border-0"><span>{item.quantity}x {item.name}</span></div>
-                                ))}
-                            </div>
-                            <div className="flex justify-between items-center text-sm font-bold border-t border-zinc-700 pt-2"><span>Total a cobrar:</span><span className="text-green-400 text-lg">${order.total}</span></div>
-                            <p className="text-xs text-gray-500">Método: {order.paymentMethod}</p>
-                        </div>
-                        <div className="p-3 bg-zinc-900 border-t border-zinc-700">
-                            {isTakenByMe ? (
-                                <button onClick={() => completeOrder(order.id)} className="w-full bg-green-500 hover:bg-green-400 text-white font-bold py-3 rounded-lg transition shadow-lg animate-pulse">✅ Entregado</button>
-                            ) : (
-                                <button onClick={() => takeOrder(order.id)} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-lg transition shadow-lg">🛵 Tomar Pedido</button>
-                            )}
+            // ESTILOS DE TARJETA ADAPTADOS
+            let cardColor = isTakenByMe ? 'border-yellow-500 shadow-yellow-500/10' : 'border-zinc-600 shadow-black'; 
+            let headerColor = isTakenByMe ? 'bg-yellow-600 text-black' : 'bg-zinc-950 text-yellow-500 border-b border-yellow-900/50';
+
+            return (
+                <div key={order.id} className={`bg-black rounded-xl border-l-4 shadow-xl overflow-hidden flex flex-col animate-fade-in ${cardColor}`}>
+                    
+                    {/* CABECERA DE LA TARJETA */}
+                    <div className={`${headerColor} p-3 font-black flex justify-between items-center tracking-wide`}>
+                        <span className="flex items-center gap-2 text-lg">
+                            <FaMotorcycle/>
+                            {isTakenByMe ? 'EN CAMINO' : 'DOMICILIO'}
+                        </span>
+                        <div className="text-right">
+                            <span className="text-[10px] block opacity-90 uppercase tracking-widest">{order.status}</span>
+                            <span className={`text-xs font-mono mt-0.5 block ${isTakenByMe ? 'text-black/70' : 'text-yellow-600'}`}>
+                                {new Date(order.createdAt?.toDate ? order.createdAt.toDate() : order.createdAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
+                            </span>
                         </div>
                     </div>
-                );
-            })}
-            {orders.length === 0 && (
-                <div className="col-span-full flex flex-col items-center justify-center py-20 text-gray-500 opacity-50"><FaMotorcycle size={50} className="mb-4"/><p className="text-xl font-bold">No hay repartos pendientes</p></div>
-            )}
-          </div>
-      )}
 
-      {activeTab === 'history' && (
-          <div className="max-w-2xl mx-auto space-y-6">
-              <div className="bg-gradient-to-br from-zinc-800 to-zinc-900 p-6 rounded-2xl border border-green-500/30 shadow-[0_0_15px_rgba(34,197,94,0.1)]">
-                  <h2 className="text-xl font-bold text-white mb-4 border-b border-zinc-700 pb-2">📊 Corte de Hoy: <span className="text-green-400">{user?.displayName}</span></h2>
-                  <div className="space-y-3">
-                      <div className="flex justify-between text-gray-400 text-sm"><span>Cobrado (Efectivo):</span><span>${totals.totalSold}</span></div>
-                      <div className="flex justify-between text-gray-400 text-sm"><span>Mis Envíos:</span><span>-${totals.totalShipping}</span></div>
-                      <div className="border-t border-dashed border-zinc-600 my-2 pt-2 flex justify-between items-center"><span className="text-lg font-bold text-white">💰 Entregar al Jefe:</span><span className="text-2xl font-black text-yellow-400">${totals.payToBoss}</span></div>
-                      <p className="text-[10px] text-gray-500 text-center mt-2">* Solo calcula pedidos cobrados en efectivo.</p>
-                  </div>
-              </div>
+                    {/* DETALLES DEL PEDIDO */}
+                    <div className="p-4 flex-1 space-y-3">
+                        <p className="font-bold text-white text-lg flex items-center gap-2 border-b border-yellow-900/30 pb-2">
+                            {order.userName}
+                            {order.userPhone && (
+                                <a href={`https://wa.me/521${order.userPhone.replace(/\D/g,'')}`} target="_blank" rel="noreferrer" className="ml-auto text-black bg-yellow-500 p-1.5 rounded-full text-sm hover:bg-yellow-400 transition shadow-md">
+                                    <FaWhatsapp size={16} />
+                                </a>
+                            )}
+                        </p>
+                        
+                        {/* DIRECCIÓN */}
+                        <div className="text-sm text-gray-300 mt-2 flex items-start gap-2 bg-zinc-950 p-3 rounded-lg border border-yellow-900/30">
+                            <FaMapMarkerAlt className="text-red-500 mt-0.5 flex-shrink-0"/>
+                            <span className="leading-tight">{order.detail}</span>
+                        </div>
 
-              <div className="space-y-2">
-                  <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-2">Historial de Entregas ({historyOrders.length})</h3>
-                  {historyOrders.map(order => (
-                      <div key={order.id} className="bg-zinc-800 rounded-lg border border-zinc-700 overflow-hidden">
-                          <button onClick={() => toggleExpand(order.id)} className="w-full flex justify-between items-center p-4 hover:bg-zinc-700/50 transition">
-                              <div className="flex items-center gap-3 text-left">
-                                  <div className={`p-2 rounded-full ${order.paymentMethod === 'efectivo' ? 'bg-green-900/50 text-green-400' : 'bg-blue-900/50 text-blue-400'}`}><FaMoneyBillWave size={14} /></div>
-                                  <div><p className="font-bold text-white text-sm">{order.detail}</p><p className="text-xs text-gray-400">{new Date(order.createdAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})} • {order.paymentMethod}</p></div>
-                              </div>
-                              <div className="text-right flex items-center gap-3"><span className="font-bold text-green-500">${order.total}</span>{expandedOrderId === order.id ? <FaChevronUp className="text-gray-500"/> : <FaChevronDown className="text-gray-500"/>}</div>
-                          </button>
-                          {expandedOrderId === order.id && (
-                              <div className="bg-black/20 p-4 border-t border-zinc-700 text-sm text-gray-300 animate-fade-in">
-                                  <p className="text-xs font-bold text-gray-500 mb-2 uppercase">Cliente: {order.userName}</p>
-                                  <ul className="space-y-2 mb-3">{order.items.map((item, i) => (<li key={i} className="flex justify-between border-b border-white/5 pb-1"><span>{item.quantity}x {item.name}</span><span>${item.price * item.quantity}</span></li>))}</ul>
-                                  <div className="flex justify-between text-xs pt-1"><span>Subtotal:</span> <span>${order.subtotal}</span></div>
-                                  <div className="flex justify-between text-xs text-green-500"><span>Envío:</span> <span>${order.serviceFee}</span></div>
-                                  <div className="flex justify-between font-bold text-white border-t border-white/10 mt-1 pt-1"><span>Total:</span> <span>${order.total}</span></div>
-                              </div>
-                          )}
-                      </div>
-                  ))}
-                  {historyOrders.length === 0 && <p className="text-center text-gray-600 py-4">Aún no has entregado pedidos hoy.</p>}
-              </div>
-          </div>
-      )}
+                        {/* LISTA DE PLATILLOS */}
+                        <div className="space-y-2 mt-3 bg-zinc-950 p-3 rounded-lg border border-yellow-900/30">
+                            {order.items.map((item, i) => (
+                                <div key={i} className="flex items-start gap-2 text-sm text-gray-300">
+                                    <span className="text-yellow-500 font-bold bg-yellow-900/20 px-1.5 py-0.5 rounded text-xs border border-yellow-900/50">{item.quantity}x</span> 
+                                    <div className="flex-1">
+                                        <span className="font-bold text-white">{item.name}</span>
+                                        {item.customizationDescription && <span className="block text-[10px] text-gray-500 italic mt-0.5">{item.customizationDescription}</span>}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* COBRO */}
+                        <div className="flex justify-between items-center text-sm font-bold border-t border-yellow-900/30 pt-3 mt-3">
+                            <span className="uppercase text-gray-500 tracking-wider">Cobrar al cliente:</span>
+                            <span className="text-green-500 text-2xl">${order.total}</span>
+                        </div>
+                    </div>
+
+                    {/* BOTONERA INFERIOR */}
+                    <div className="p-3 bg-[#0a0a0a] border-t border-yellow-900/30 flex flex-col gap-2">
+                        
+                        {/* 1. BOTÓN UBICACIÓN */}
+                        <button 
+                            onClick={() => openLocation(order)} 
+                            className="w-full bg-black hover:bg-zinc-900 text-yellow-500 font-bold py-2.5 rounded-lg transition flex items-center justify-center gap-2 border border-yellow-700/50 shadow-sm"
+                        >
+                            <FaMapSigns/> Ubicación
+                        </button>
+
+                        {/* 2. BOTONES PRINCIPALES */}
+                        <div className="grid grid-cols-1 gap-2">
+                            {!isTakenByMe ? (
+                                <button 
+                                    onClick={() => takeOrder(order.id)} 
+                                    className="w-full bg-yellow-500 hover:bg-yellow-400 text-black font-black py-3 rounded-lg transition shadow-[0_0_15px_rgba(234,179,8,0.2)] flex items-center justify-center gap-2"
+                                >
+                                    <FaMotorcycle size={18}/> Tomar Pedido
+                                </button>
+                            ) : (
+                                <button 
+                                    onClick={() => completeOrder(order.id)} 
+                                    className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-3 rounded-lg transition shadow-[0_0_15px_rgba(22,163,7,0.3)] animate-pulse flex items-center justify-center gap-2"
+                                >
+                                    <FaCheck size={18}/> Pedido Entregado
+                                </button>
+                            )}
+                        </div>
+
+                        {/* 3. BOTÓN CANCELAR */}
+                        <button 
+                            onClick={() => cancelOrder(order.id)} 
+                            className="w-full bg-black hover:bg-red-900/20 text-red-500 border border-red-900/30 text-xs font-bold py-2.5 rounded-lg transition flex items-center justify-center gap-1 mt-1"
+                        >
+                            <FaTrash/> Cancelar Orden
+                        </button>
+                    </div>
+                </div>
+            );
+        })}
+        
+        {visibleOrders.length === 0 && (
+            <div className="col-span-full flex flex-col items-center justify-center py-24 text-yellow-500/30">
+                <FaMotorcycle size={70} className="mb-4 drop-shadow-lg"/>
+                <p className="text-xl font-black text-gray-400">Sin repartos pendientes</p>
+                <p className="text-sm mt-2 text-gray-600">Aparecerán aquí cuando la cocina termine.</p>
+            </div>
+        )}
+      </div>
     </div>
   );
 }
