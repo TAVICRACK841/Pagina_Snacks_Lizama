@@ -184,7 +184,10 @@ export default function Navbar() {
                         )}
 
                         {hasRole('admin') && (
-                            <a href="/admin" className="block px-4 py-3 hover:bg-zinc-700 text-red-600 font-bold transition">🛠️ Administración</a>
+                            <>
+                                <a href="/admin" className="block px-4 py-3 hover:bg-zinc-700 text-red-600 font-bold transition">🛠️ Administración</a>
+                                <a href="/registros" className="block px-4 py-3 hover:bg-zinc-700 transition font-bold text-cyan-400">🗂️ Registros Empleados</a>
+                            </>
                         )}
 
                         <div className="border-t border-zinc-700 mt-2 pt-2">
