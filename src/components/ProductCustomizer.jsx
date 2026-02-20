@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { FaCheck, FaTimes, FaPlus, FaMinus, FaHamburger, FaDrumstickBite, FaIceCream, FaUtensils, FaWineBottle, FaBoxOpen, FaGlassWhiskey, FaSnowflake, FaThermometerHalf } from 'react-icons/fa';
+import { FaCheck, FaTimes, FaPlus, FaMinus, FaHamburger, FaDrumstickBite, FaUtensils, FaSnowflake, FaThermometerHalf, FaStickyNote } from 'react-icons/fa';
 import { showToast } from '../stores/toastStore';
 
 export default function ProductCustomizer({ product, initialValues, onClose, onAddToCart }) {
@@ -22,18 +22,19 @@ export default function ProductCustomizer({ product, initialValues, onClose, onA
   // Categorías Simples
   const isSimple = ['papas', 'media papas', 'pasta', 'media pasta', 'dedos de queso'].includes(c);
 
-  // Categorías que deben mostrar la lista de piezas extras (Alitas/Boneless/Tiras)
+  // Categorías que deben mostrar la lista de piezas extras
   const showExtraSnacksList = isBurger || isWingsType || isPastaProtein || isBox;
 
   // --- 2. VARIABLES DE PRECIO ---
-  const PIECE_PRICE = Number(product.extraPiecePrice || product.pricePerExtraPiece || 0);
   const POT_PRICE = Number(product.extraSaucePotPrice || 0);
-  // Precio unificado para las piezas extras (Alitas/Boneless/Tiras)
   const SNACK_PRICE = Number(product.extraSnackPrice || product.pricePerExtraPiece || 0); 
   const TAPIOCA_PRICE = Number(product.tapiocaPrice || 0);
 
   // --- 3. ESTADOS ---
   const [currentPrice, setCurrentPrice] = useState(product.price);
+  
+  // NUEVO: NOTA ESPECIAL DEL CLIENTE
+  const [specialNote, setSpecialNote] = useState(() => initialValues?.rawState?.specialNote || '');
 
   // GENERAL
   const [friesType, setFriesType] = useState(() => initialValues?.rawState?.friesType || 'Papas a la Francesa');
@@ -42,8 +43,7 @@ export default function ProductCustomizer({ product, initialValues, onClose, onA
   const [extraSaucePots, setExtraSaucePots] = useState(initialValues?.rawState?.extraSaucePots || 0);
   const [chosenSauces, setChosenSauces] = useState(initialValues?.rawState?.chosenSauces || []);
 
-  // PIEZAS EXTRAS (Unificado para todas las categorías)
-  // Ahora usamos este estado para Burger, Wings, Pasta y Box
+  // PIEZAS EXTRAS
   const [extraSnacks, setExtraSnacks] = useState(() => initialValues?.rawState?.extraSnacks || { alitas: 0, boneless: 0, tiras: 0 });
   const [extraSnackSauce, setExtraSnackSauce] = useState(() => initialValues?.rawState?.extraSnackSauce || 'Natural');
 
@@ -85,41 +85,26 @@ export default function ProductCustomizer({ product, initialValues, onClose, onA
   // --- 4. CÁLCULO DE PRECIO ---
   useEffect(() => {
     let newPrice = Number(product.price);
-    
-    // Extras genéricos (Tocino, Queso, etc.)
     selectedExtras.forEach(extra => newPrice += Number(extra.price));
     
-    // Salsas extra (Botecitos)
     const totalExtraSauces = product.extraSauceNames?.length > 0 ? chosenSauces.length : extraSaucePots;
     if (totalExtraSauces > 0) newPrice += (totalExtraSauces * POT_PRICE);
 
-    // Piezas Extras (Alitas/Boneless/Tiras) - Aplica para todas las categorías que lo muestren
     const totalSnacks = extraSnacks.alitas + extraSnacks.boneless + extraSnacks.tiras;
     if (totalSnacks > 0) newPrice += (totalSnacks * SNACK_PRICE);
 
-    // Lógica Hamburguesa
     if (isBurger) {
         if (extraIngredients.length > 0) newPrice += (extraIngredients.length * (product.standardIngredientsPrice || 0));
         if (burgerBathedFlavor) newPrice += 5; 
     }
 
-    // Lógica Hot Dog
-    if (isHotDog && isCombo) {
-        newPrice = (Number(product.price) * 2) + 10;
-    }
+    if (isHotDog && isCombo) newPrice = (Number(product.price) * 2) + 10;
+    if (isFrappe && frappeOptions.tapioca) newPrice += TAPIOCA_PRICE;
 
-    // Lógica Frappe
-    if (isFrappe && frappeOptions.tapioca) {
-        newPrice += TAPIOCA_PRICE;
-    }
-
-    // Lógica Box
     if (isBox) {
-        // Ingredientes extra en la hamburguesa del box
         if (extraIngredients.length > 0 && boxConfig.mainChoice.includes('Hamburguesa')) {
              newPrice += (extraIngredients.length * (product.standardIngredientsPrice || 0));
         }
-        // Nota: Las piezas extras ya se sumaron arriba con totalSnacks * SNACK_PRICE
     }
 
     setCurrentPrice(newPrice);
@@ -129,11 +114,8 @@ export default function ProductCustomizer({ product, initialValues, onClose, onA
   const toggleStandardIngredient = (ing) => activeIngredients.includes(ing) ? setActiveIngredients(activeIngredients.filter(i => i !== ing)) : setActiveIngredients([...activeIngredients, ing]);
   const toggleExtraIngredient = (ing) => extraIngredients.includes(ing) ? setExtraIngredients(extraIngredients.filter(i => i !== ing)) : setExtraIngredients([...extraIngredients, ing]);
   const toggleExtra = (extra) => selectedExtras.find(e => e.name === extra.name) ? setSelectedExtras(selectedExtras.filter(e => e.name !== extra.name)) : setSelectedExtras([...selectedExtras, extra]);
-  
-  // Función unificada para actualizar snacks extras
   const updateExtraSnack = (type, delta) => { const val = extraSnacks[type] + delta; if (val >= 0) setExtraSnacks({ ...extraSnacks, [type]: val }); };
 
-  // --- HELPER PARA SALSAS EXTRAS ---
   const addSpecificSauce = (sauceName) => { setChosenSauces([...chosenSauces, sauceName]); };
   const removeSpecificSauce = (sauceName) => {
       const index = chosenSauces.indexOf(sauceName);
@@ -146,14 +128,26 @@ export default function ProductCustomizer({ product, initialValues, onClose, onA
   const getSauceCount = (sauceName) => chosenSauces.filter(s => s === sauceName).length;
 
   const handleConfirm = () => {
-      // Validaciones
+      // Validaciones Generales
       if ((isWingsType || isPastaProtein) && !isTiras && useSplitFlavors && (!selectedFlavors.flavor1 || !selectedFlavors.flavor2)) return showToast("Elige ambos sabores", "error");
       if ((isWingsType || isPastaProtein) && !isTiras && !useSplitFlavors && !selectedFlavors.flavor1) return showToast("Elige un sabor", "error");
-      if (isTiras && sauceMode === 'Bañado' && !selectedFlavors.flavor1) return showToast("Elige la salsa para bañar", "error");
-      if ((isDrink || isFrappe) && product.flavorOptions?.length > 0 && !drinkFlavor) return showToast("Elige el sabor", "error");
+      if (isTiras && sauceMode === 'Bañado' && !selectedFlavors.flavor1) return showToast("Elige la salsa para bañar las tiras", "error");
+      if ((isDrink || isFrappe) && product.flavorOptions?.length > 0 && !drinkFlavor) return showToast("Elige el sabor de la bebida", "error");
       
-      // Validación Box: Tiras bañadas deben tener sabor
-      if (isBox && boxConfig.tirasMode === 'Bañadas' && !boxConfig.tirasFlavor) return showToast("Elige la salsa para las tiras", "error");
+      // Validación Estricta para BOX: Sabor obligatorio
+      if (isBox) {
+          if (boxConfig.tirasMode === 'Bañadas' && !boxConfig.tirasFlavor) return showToast("Elige la salsa para las tiras del Box", "error");
+          
+          if (boxConfig.splitWingsBoneless) {
+              if (!boxConfig.wingsBonelessFlavors.f1 || !boxConfig.wingsBonelessFlavors.f2) {
+                  return showToast("Debes elegir los DOS sabores (Mitad y Mitad) para Alitas/Boneless", "error");
+              }
+          } else {
+              if (!boxConfig.wingsBonelessFlavors.f1) {
+                  return showToast("Debes elegir el sabor para Alitas/Boneless del Box", "error");
+              }
+          }
+      }
 
       let desc = [];
 
@@ -188,7 +182,6 @@ export default function ProductCustomizer({ product, initialValues, onClose, onA
           desc.push(`[${boxConfig.proteinChoice}]`);
           if (boxConfig.mainChoice.includes('Hamburguesa')) {
               desc.push(`Burger: ${boxConfig.burgerMeat} ${boxConfig.burgerBathed ? `(${boxConfig.burgerBathed})` : ''}`);
-              // Ingredientes de la burger del box
               const removed = (product.standardIngredients || []).filter(ing => !activeIngredients.includes(ing));
               if (removed.length > 0) desc.push(`Burger Sin: ${removed.join(', ')}`);
               if (extraIngredients.length > 0) desc.push(`Burger Extra: ${extraIngredients.join(', ')}`);
@@ -197,12 +190,12 @@ export default function ProductCustomizer({ product, initialValues, onClose, onA
           const tirasDesc = boxConfig.tirasMode === 'Bañadas' ? `Bañadas en ${boxConfig.tirasFlavor}` : 'Naturales';
           desc.push(`Tiras: ${tirasDesc}`);
           
-          const boxFlavors = boxConfig.splitWingsBoneless ? `${boxConfig.wingsBonelessFlavors.f1} / ${boxConfig.wingsBonelessFlavors.f2}` : boxConfig.wingsBonelessFlavors.f1 || 'Al Gusto';
+          const boxFlavors = boxConfig.splitWingsBoneless ? `${boxConfig.wingsBonelessFlavors.f1} / ${boxConfig.wingsBonelessFlavors.f2}` : boxConfig.wingsBonelessFlavors.f1;
           desc.push(`Salsas Alitas/Boneless: ${boxFlavors}`);
           desc.push(friesType);
       }
 
-      // --- PIEZAS EXTRAS (Descripción Común) ---
+      // --- PIEZAS EXTRAS ---
       const totalSnacks = extraSnacks.alitas + extraSnacks.boneless + extraSnacks.tiras;
       if (totalSnacks > 0) {
           let snacksDesc = [];
@@ -219,7 +212,7 @@ export default function ProductCustomizer({ product, initialValues, onClose, onA
           if (isFrappe) {
               desc.push(`Chantilly: ${frappeOptions.chantilly}`);
               desc.push(`Hielo: ${frappeOptions.ice}`);
-              if (frappeOptions.tapioca) desc.push(`Con Tapioca (+${TAPIOCA_PRICE})`);
+              if (frappeOptions.tapioca) desc.push(`Con Tapioca`);
               else desc.push(`Sin Tapioca`);
           }
       }
@@ -238,7 +231,12 @@ export default function ProductCustomizer({ product, initialValues, onClose, onA
 
       if (selectedExtras.length > 0) desc.push(`Extras: ${selectedExtras.map(e => e.name).join(', ')}`);
 
-      const rawState = { activeIngredients, extraIngredients, friesType, extraSaucePots, chosenSauces, meatType, burgerBathedFlavor, extraSnacks, extraSnackSauce, sauceMode, selectedFlavors, useSplitFlavors, isCombo, boxConfig, drinkFlavor, iceLevel, drinkTemp, frappeOptions };
+      // SE AGREGA LA NOTA ESPECIAL AL FINAL DE LA DESCRIPCIÓN
+      if (specialNote.trim() !== '') {
+          desc.push(`👉 NOTA: ${specialNote.trim()}`);
+      }
+
+      const rawState = { activeIngredients, extraIngredients, friesType, extraSaucePots, chosenSauces, meatType, burgerBathedFlavor, extraSnacks, extraSnackSauce, sauceMode, selectedFlavors, useSplitFlavors, isCombo, boxConfig, drinkFlavor, iceLevel, drinkTemp, frappeOptions, specialNote };
 
       onAddToCart({ ...product, price: currentPrice, customization: { removed: [], extras: selectedExtras, rawState, finalPrice: currentPrice }, customizationDescription: desc.join('. ') });
       onClose();
@@ -373,7 +371,6 @@ export default function ProductCustomizer({ product, initialValues, onClose, onA
             )}
 
             {/* --- SECCIÓN PIEZAS EXTRAS (UNIFICADA) --- */}
-            {/* Aplica para Hamburguesa, Alitas, Boneless, Tiras, Pastas y Box */}
             {showExtraSnacksList && (
                 <div className="bg-zinc-800 p-4 rounded-xl border border-zinc-700">
                     <h4 className="font-bold mb-3 flex items-center gap-2 text-blue-400 text-xs uppercase tracking-wide"><FaDrumstickBite/> Agregar Piezas Extra (+${SNACK_PRICE} c/u)</h4>
@@ -389,7 +386,6 @@ export default function ProductCustomizer({ product, initialValues, onClose, onA
                             </div>
                         ))}
                     </div>
-                    {/* Selector de Salsa para los extras */}
                     {(extraSnacks.alitas > 0 || extraSnacks.boneless > 0 || extraSnacks.tiras > 0) && (
                         <div className="mt-3 pt-3 border-t border-zinc-700">
                             <p className="text-xs mb-1 font-bold text-gray-400">Salsa para piezas extra:</p>
@@ -459,7 +455,6 @@ export default function ProductCustomizer({ product, initialValues, onClose, onA
                                 </div>
                                 <select className={selectClass} value={boxConfig.burgerBathed} onChange={e=>setBoxConfig({...boxConfig, burgerBathed:e.target.value})}><option value="">Carne Natural</option>{SAUCES_LIST.map(s=><option key={s} value={s}>Bañada en {s}</option>)}</select>
                                 
-                                {/* CONFIG INGREDIENTES HAMBURGUESA DEL BOX */}
                                 {product.standardIngredients?.length > 0 && (
                                     <div className="mt-3 space-y-3">
                                         <div>
@@ -533,7 +528,6 @@ export default function ProductCustomizer({ product, initialValues, onClose, onA
             {/* --- BEBIDAS --- */}
             {(isDrink || isFrappe) && (
                 <div className="bg-zinc-800/80 p-4 rounded-xl border border-zinc-700 space-y-4">
-                    {/* SELECTOR DE SABOR (Si el admin agregó sabores) */}
                     {product.flavorOptions?.length > 0 && (
                         <div>
                             <p className="text-xs font-bold mb-1 text-yellow-500 uppercase">Sabor:</p>
@@ -544,7 +538,6 @@ export default function ProductCustomizer({ product, initialValues, onClose, onA
                         </div>
                     )}
 
-                    {/* AGUAS: NIVEL DE HIELO */}
                     {isAguas && product.hasIceOption && (
                         <div>
                             <p className="text-xs font-bold text-blue-300 mb-2 flex items-center gap-1"><FaSnowflake/> Nivel de Hielo</p>
@@ -558,7 +551,6 @@ export default function ProductCustomizer({ product, initialValues, onClose, onA
                         </div>
                     )}
 
-                    {/* EMBOTELLADOS: TEMPERATURA */}
                     {isEmbotellado && product.hasTempOption && (
                         <div>
                             <p className="text-xs font-bold text-cyan-300 mb-2 flex items-center gap-1"><FaThermometerHalf/> Temperatura</p>
@@ -569,7 +561,6 @@ export default function ProductCustomizer({ product, initialValues, onClose, onA
                         </div>
                     )}
 
-                    {/* FRAPPES */}
                     {isFrappe && (
                         <div className="space-y-4">
                             <div>
@@ -671,6 +662,21 @@ export default function ProductCustomizer({ product, initialValues, onClose, onA
                     </div>
                 </div>
             )}
+
+            {/* NUEVO: CAMPO DE NOTAS ESPECIALES */}
+            <div className="bg-zinc-800/50 p-4 rounded-xl border border-zinc-700">
+                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 flex items-center gap-2">
+                    <FaStickyNote className="text-yellow-500"/> Notas Especiales (Opcional)
+                </label>
+                <textarea 
+                    rows="2"
+                    placeholder="Ej: Sin cebolla, aderezo aparte, poca sal..."
+                    value={specialNote}
+                    onChange={(e) => setSpecialNote(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-600 text-white p-3 rounded-lg text-sm focus:border-yellow-500 focus:outline-none focus:ring-1 focus:ring-yellow-500 resize-none"
+                />
+            </div>
+
         </div>
 
         {/* Footer Actions */}

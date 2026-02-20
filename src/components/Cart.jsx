@@ -4,12 +4,11 @@ import { useState, useEffect, useMemo } from 'react';
 import { auth, db } from '../firebase/config';
 import { addDoc, collection, doc, onSnapshot, query, where, updateDoc } from 'firebase/firestore';
 import { showToast } from '../stores/toastStore';
-import { FaShoppingBag, FaCreditCard, FaMoneyBillWave, FaTerminal, FaCheckCircle, FaTimes, FaTrash, FaMapMarkerAlt, FaMobileAlt, FaUpload, FaCopy, FaArrowLeft, FaEdit, FaClock, FaQrcode } from 'react-icons/fa'; // <--- AGREGADO FaQrcode
+import { FaShoppingBag, FaCreditCard, FaMoneyBillWave, FaTerminal, FaCheckCircle, FaTimes, FaTrash, FaMapMarkerAlt, FaMobileAlt, FaUpload, FaCopy, FaArrowLeft, FaEdit, FaClock, FaQrcode } from 'react-icons/fa';
 import { getBankStyle } from '../utils/bankStyles';
 import { initMercadoPago, Wallet } from '@mercadopago/sdk-react';
 import ProductCustomizer from './ProductCustomizer';
 
-// Inicializar MercadoPago
 const publicKey = import.meta.env.PUBLIC_MP_KEY;
 if (publicKey) { initMercadoPago(publicKey, { locale: 'es-MX' }); }
 
@@ -50,7 +49,7 @@ export default function Cart() {
   const serviceFee = useMemo(() => {
       let fee = 0;
       if (orderType === 'mesa') {
-          fee = Math.round(subtotal * 0.10); // 10% Propina sugerida
+          fee = Math.round(subtotal * 0.10); 
       } else if (orderType === 'domicilio') {
           fee = 10; 
       }
@@ -68,7 +67,7 @@ export default function Cart() {
           case 'efectivo': return active ? 'bg-green-100 dark:bg-green-900/30 border-green-500 text-green-700 dark:text-green-400 shadow-sm ring-1 ring-green-500' : baseClass;
           case 'point': return active ? 'bg-yellow-100 dark:bg-yellow-900/30 border-yellow-500 text-yellow-700 dark:text-yellow-400 shadow-sm ring-1 ring-yellow-500' : baseClass;
           case 'transferencia': return active ? 'bg-purple-100 dark:bg-purple-900/30 border-purple-500 text-purple-700 dark:text-purple-400 shadow-sm ring-1 ring-purple-500' : baseClass;
-          case 'codi': return active ? 'bg-pink-100 dark:bg-pink-900/30 border-pink-500 text-pink-700 dark:text-pink-400 shadow-sm ring-1 ring-pink-500' : baseClass; // <--- CODI COLOR
+          case 'codi': return active ? 'bg-pink-100 dark:bg-pink-900/30 border-pink-500 text-pink-700 dark:text-pink-400 shadow-sm ring-1 ring-pink-500' : baseClass; 
           case 'mercadopago': return active ? 'bg-sky-100 dark:bg-sky-900/30 border-sky-500 text-sky-700 dark:text-sky-400 shadow-sm ring-1 ring-sky-500' : baseClass;
           default: return baseClass;
       }
@@ -79,7 +78,7 @@ export default function Cart() {
           case 'efectivo': return 'bg-green-600 hover:bg-green-700';
           case 'point': return 'bg-yellow-500 hover:bg-yellow-600 text-black';
           case 'transferencia': return 'bg-purple-600 hover:bg-purple-700';
-          case 'codi': return 'bg-pink-600 hover:bg-pink-700'; // <--- CODI COLOR
+          case 'codi': return 'bg-pink-600 hover:bg-pink-700'; 
           case 'mercadopago': return 'bg-sky-600 hover:bg-sky-700';
           default: return 'bg-gray-600';
       }
@@ -93,15 +92,35 @@ export default function Cart() {
             if (data.accounts) setAccounts(data.accounts);
         }
     });
-    const q = query(collection(db, "orders"), where("status", "in", ["pendiente", "preparando", "en_camino", "listo"]), where("type", "==", "mesa"));
+
+    // ESCUCHAMOS LAS MESAS ACTIVAS EN TIEMPO REAL
+    const q = query(
+        collection(db, "orders"), 
+        where("status", "in", ["pendiente", "preparando", "en_camino", "listo", "servido"]), // Aseguramos incluir servido
+        where("type", "==", "mesa")
+    );
+    
     const unsubOrders = onSnapshot(q, (snapshot) => {
-        const occupied = [];
+        let occupied = [];
         snapshot.docs.forEach(doc => {
             const detailStr = doc.data().detail.replace('Mesa ', '');
             detailStr.split(', ').forEach(numStr => occupied.push(parseInt(numStr)));
         });
-        setBusyTables([...new Set(occupied)]);
+        
+        // Quitar duplicados
+        occupied = [...new Set(occupied)];
+        setBusyTables(occupied);
+
+        // Si la mesa que el usuario tenía seleccionada se ocupó por alguien más, la deseleccionamos
+        if (selectedTables.length > 0) {
+            const stillAvailable = selectedTables.filter(t => !occupied.includes(t));
+            if (stillAvailable.length !== selectedTables.length) {
+                setSelectedTables(stillAvailable);
+                showToast("¡Ups! Alguien acaba de ocupar la mesa que tenías seleccionada", "info");
+            }
+        }
     });
+
     const unsubAuth = auth.onAuthStateChanged((u) => {
       setUser(u);
       if (u) {
@@ -111,7 +130,7 @@ export default function Cart() {
       }
     });
     return () => { unsubConfig(); unsubOrders(); unsubAuth(); };
-  }, []);
+  }, [selectedTables]);
 
   useEffect(() => {
       if ($isCartOpen && orderType === 'mesa' && selectedTables.length === 0) {
@@ -119,7 +138,7 @@ export default function Cart() {
               if (!busyTables.includes(i)) { setSelectedTables([i]); return; }
           }
       }
-  }, [$isCartOpen, orderType, totalTableCount]);
+  }, [$isCartOpen, orderType, totalTableCount, busyTables]);
 
   const toggleTable = (tableNum) => {
       if (busyTables.includes(tableNum)) return;
@@ -136,19 +155,26 @@ export default function Cart() {
   const handleManualCheckout = async () => { 
       if (!user) return showToast("Inicia sesión", 'error'); 
       if ($cartItems.length === 0) return showToast("Carrito vacío", 'error'); 
-      if (orderType === 'mesa' && selectedTables.length === 0) return showToast("Selecciona una mesa", 'error'); 
+      if (orderType === 'mesa' && selectedTables.length === 0) return showToast("Selecciona una mesa válida", 'error'); 
       if (orderType === 'domicilio' && !selectedAddress) return showToast("Selecciona dirección", 'error'); 
       if (paymentMethod === 'transferencia' && (!selectedBankInfo || !transferFile)) return showToast("Faltan datos de pago", 'error'); 
       
+      // Doble validación por seguridad (Que no envíen una mesa que se acaba de ocupar)
+      if (orderType === 'mesa') {
+          const isTableBusy = selectedTables.some(t => busyTables.includes(t));
+          if (isTableBusy) {
+              return showToast("⚠️ La mesa seleccionada acaba de ser ocupada, elige otra", "error");
+          }
+      }
+
       setLoading(true); 
       try { 
           let proofUrl = ''; 
           let paymentDetail = '';
 
-          // Definir detalle según método
           if (paymentMethod === 'efectivo') paymentDetail = 'Pago en Efectivo';
           else if (paymentMethod === 'point') paymentDetail = 'Pago con Point Terminal';
-          else if (paymentMethod === 'codi') paymentDetail = 'Cobro con CoDi (QR)'; // <--- DETALLE CODI
+          else if (paymentMethod === 'codi') paymentDetail = 'Cobro con CoDi (QR)'; 
           else if (paymentMethod === 'transferencia') { 
               setUploading(true); 
               proofUrl = await handleUploadProof(); 
@@ -156,7 +182,6 @@ export default function Cart() {
               paymentDetail = `Transferencia a: ${selectedBankInfo.bank}`; 
           } 
 
-          // Recuperar coordenadas
           let locationCoords = null;
           if (orderType === 'domicilio') {
               const selectedAddrObj = userData.savedAddresses?.find(addr => addr.text === selectedAddress);
@@ -175,7 +200,9 @@ export default function Cart() {
                   price: item.price, 
                   quantity: item.quantity, 
                   customization: item.customization || null, 
-                  customizationDescription: item.customizationDescription || '' 
+                  customizationDescription: item.customizationDescription || '',
+                  completed: false, // Inician sin completar en cocina
+                  delivered: false  // Inician sin entregar al cliente
               })), 
               total: total, 
               subtotal: subtotal, 
@@ -217,7 +244,7 @@ export default function Cart() {
   const allTablesBusy = busyTables.length >= totalTableCount;
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
+    <div className="fixed inset-0 z-[100] flex justify-end">
       <div className="absolute inset-0 bg-black bg-opacity-70 backdrop-blur-sm" onClick={() => isCartOpen.set(false)}></div>
       <div className="relative w-full max-w-md bg-white dark:bg-zinc-900 h-full shadow-2xl flex flex-col border-l dark:border-zinc-800 animate-slide-in-right">
         
@@ -233,7 +260,7 @@ export default function Cart() {
                     <img src={item.image} className="w-16 h-16 rounded-lg object-cover bg-gray-100 shadow-sm" />
                     <div className="flex-1">
                         <div className="flex justify-between items-start"><h4 className="font-bold dark:text-white text-sm">{item.name}</h4><button onClick={() => removeFromCart(item.id, item.customization)} className="text-gray-400 hover:text-red-500 text-xs"><FaTrash/></button></div>
-                        {item.customizationDescription && <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 italic border-l-2 border-yellow-500 pl-2">{item.customizationDescription}</p>}
+                        {item.customizationDescription && <p className="text-[10px] leading-tight text-yellow-600 dark:text-yellow-500/80 mt-1 italic border-l-2 border-yellow-500 pl-2">{item.customizationDescription}</p>}
                         
                         {item.allowsCustomization && (
                             <button onClick={() => setEditingItem(item)} className="mt-3 w-full text-center bg-yellow-400 text-zinc-900 text-xs font-extrabold uppercase py-2 rounded-lg border-b-4 border-yellow-500 active:border-b-0 active:translate-y-1 transition-all flex items-center justify-center gap-1 shadow-sm hover:bg-yellow-300">
@@ -260,7 +287,7 @@ export default function Cart() {
             <>
                 <div className="bg-gray-50 dark:bg-zinc-800/50 p-4 rounded-xl border dark:border-zinc-700">
                     <label className="block font-bold mb-3 dark:text-white flex items-center gap-2">¿Cómo lo quieres?</label>
-                    <select value={orderType} onChange={(e) => setOrderType(e.target.value)} className="w-full p-3 border rounded-xl bg-white dark:bg-zinc-800 dark:text-white dark:border-zinc-600 mb-4 shadow-sm">
+                    <select value={orderType} onChange={(e) => setOrderType(e.target.value)} className="w-full p-3 border rounded-xl bg-white dark:bg-zinc-800 dark:text-white dark:border-zinc-600 mb-4 shadow-sm outline-none focus:ring-2 focus:ring-yellow-500">
                         <option value="mesa">🍽️ Comer en Mesa</option>
                         <option value="llevar">🥡 Para Llevar</option>
                         <option value="domicilio">🛵 A Domicilio</option>
@@ -268,11 +295,11 @@ export default function Cart() {
                     
                     <div className="mt-3 bg-white dark:bg-zinc-700 p-3 rounded-lg border border-gray-200 dark:border-zinc-600">
                         <label className="text-xs font-bold text-gray-600 dark:text-gray-300 mb-1 flex items-center gap-1"><FaClock /> ¿Programar para una hora? (Opcional)</label>
-                        <input type="time" className="w-full p-2 border rounded-lg dark:bg-zinc-800 dark:text-white dark:border-zinc-500 text-sm" value={scheduledTime} onChange={(e) => setScheduledTime(e.target.value)} />
+                        <input type="time" className="w-full p-2 border rounded-lg dark:bg-zinc-800 dark:text-white dark:border-zinc-500 text-sm outline-none focus:ring-1 focus:ring-yellow-500" value={scheduledTime} onChange={(e) => setScheduledTime(e.target.value)} />
                     </div>
 
-                    {orderType === 'mesa' && (<div><p className="font-bold text-sm mb-2 mt-4 dark:text-white flex justify-between">Selecciona Mesa(s): {allTablesBusy && <span className="text-red-500 text-xs">¡Local Lleno!</span>}</p><div className="grid grid-cols-5 gap-2 max-h-40 overflow-y-auto p-1">{Array.from({length: totalTableCount}, (_, i) => i + 1).map(num => { const isBusy = busyTables.includes(num); const isSelected = selectedTables.includes(num); return (<button key={num} onClick={() => toggleTable(num)} disabled={isBusy} className={`p-2 rounded-lg font-bold text-sm transition relative overflow-hidden ${isBusy ? 'bg-red-100 text-red-400 cursor-not-allowed border border-red-200' : isSelected ? 'bg-yellow-500 text-white shadow-md scale-105' : 'bg-white dark:bg-zinc-700 border dark:border-zinc-600 hover:border-yellow-400 dark:text-white'}`}>{num}{isSelected && <FaCheckCircle className="absolute top-1 right-1 text-[10px]"/>}</button>); })}</div>{selectedTables.length > 0 && <p className="text-xs text-gray-500 mt-2">Mesa(s): {selectedTables.join(', ')}</p>}</div>)}
-                    {orderType === 'domicilio' && (userData.savedAddresses?.length > 0 ? <select className="w-full p-3 border rounded-xl dark:bg-zinc-800 dark:text-white dark:border-zinc-600 shadow-sm mt-3" value={selectedAddress} onChange={e=>setSelectedAddress(e.target.value)}><option value="">Selecciona Dirección...</option>{userData.savedAddresses.map(a=><option key={a.id} value={a.text}>{a.alias} - {a.text.substring(0, 20)}...</option>)}</select> : <a href="/profile" className="text-yellow-500 underline text-sm flex items-center gap-1 mt-3"><FaMapMarkerAlt/> Agrega una dirección en tu perfil</a>)}
+                    {orderType === 'mesa' && (<div><p className="font-bold text-sm mb-2 mt-4 dark:text-white flex justify-between">Selecciona Mesa(s): {allTablesBusy && <span className="text-red-500 text-xs">¡Local Lleno!</span>}</p><div className="grid grid-cols-5 gap-2 max-h-40 overflow-y-auto p-1">{Array.from({length: totalTableCount}, (_, i) => i + 1).map(num => { const isBusy = busyTables.includes(num); const isSelected = selectedTables.includes(num); return (<button key={num} onClick={() => toggleTable(num)} disabled={isBusy} className={`p-2 rounded-lg font-bold text-sm transition relative overflow-hidden ${isBusy ? 'bg-red-900/30 text-red-500 cursor-not-allowed border border-red-900/50' : isSelected ? 'bg-yellow-500 text-black shadow-md scale-105' : 'bg-white dark:bg-zinc-700 border dark:border-zinc-600 hover:border-yellow-400 dark:text-white'}`}>{num}{isSelected && <FaCheckCircle className="absolute top-1 right-1 text-[10px]"/>}</button>); })}</div>{selectedTables.length > 0 && <p className="text-xs text-gray-500 mt-2">Mesa(s): {selectedTables.join(', ')}</p>}</div>)}
+                    {orderType === 'domicilio' && (userData.savedAddresses?.length > 0 ? <select className="w-full p-3 border rounded-xl dark:bg-zinc-800 dark:text-white dark:border-zinc-600 shadow-sm mt-3 outline-none focus:ring-2 focus:ring-yellow-500" value={selectedAddress} onChange={e=>setSelectedAddress(e.target.value)}><option value="">Selecciona Dirección...</option>{userData.savedAddresses.map(a=><option key={a.id} value={a.text}>{a.alias} - {a.text.substring(0, 20)}...</option>)}</select> : <a href="/profile" className="text-yellow-500 underline text-sm flex items-center gap-1 mt-3 hover:text-yellow-400"><FaMapMarkerAlt/> Agrega una dirección en tu perfil</a>)}
                 </div>
 
                 <div>
