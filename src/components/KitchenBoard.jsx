@@ -3,7 +3,7 @@ import { db, auth } from '../firebase/config';
 import { collection, query, where, onSnapshot, doc, updateDoc, getDoc } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import { showToast } from '../stores/toastStore';
-import { FaFire, FaCheck, FaClock, FaCheckSquare, FaRegSquare, FaUtensils, FaUserShield, FaBan } from 'react-icons/fa';
+import { FaFire, FaCheck, FaClock, FaCheckSquare, FaRegSquare, FaUtensils, FaUserShield, FaBan, FaGlassWhiskey } from 'react-icons/fa';
 
 export default function KitchenBoard() {
   const [orders, setOrders] = useState([]);
@@ -16,6 +16,8 @@ export default function KitchenBoard() {
       'freidor': ['alitas', 'boneless', 'papas', 'dedos', 'tiras', 'nuggets', 'aros', 'snack', 'box'],
       'productor': ['pasta', 'camarones', 'ensalada'],
   };
+
+  const DRINK_KEYWORDS = ['frappe', 'horchata', 'jamaica', 'soda', 'refresco', 'limonada', 'coca', 'pepsi', 'fanta', 'sidral', 'agua', 'té', 'café'];
 
   useEffect(() => {
     const unsubAuth = onAuthStateChanged(auth, async (u) => {
@@ -32,8 +34,6 @@ export default function KitchenBoard() {
       }
     });
 
-    // RED DE SEGURIDAD: Agregamos 'servido' por si el mesero entrega un refresco
-    // y fuerza el estado. Así la cocina nunca pierde la tarjeta.
     const q = query(
         collection(db, "orders"),
         where("status", "in", ["pendiente", "preparando", "servido"])
@@ -53,34 +53,46 @@ export default function KitchenBoard() {
     return () => { unsubAuth(); unsubscribeOrders(); };
   }, []);
 
+  const isDrink = (item) => {
+      const name = item.name.toLowerCase();
+      return DRINK_KEYWORDS.some(d => name.includes(d));
+  };
+
   const shouldShowItem = (item) => {
-    const name = item.name.toLowerCase();
-    // Excluir bebidas totalmente de la cocina caliente
-    if (['frappe', 'horchata', 'jamaica', 'soda', 'refresco', 'limonada', 'coca', 'pepsi', 'fanta', 'sidral', 'agua', 'té', 'café'].some(d => name.includes(d))) return false;
-    
     if (isAdmin) return true; 
+    
+    if (isDrink(item)) return false;
+    
     let myKeywords = [];
     userRoles.forEach(role => { if (ROLE_CATEGORIES[role]) myKeywords = [...myKeywords, ...ROLE_CATEGORIES[role]]; });
     if (myKeywords.length === 0) return false;
+    
+    const name = item.name.toLowerCase();
     return myKeywords.some(k => name.includes(k));
   };
 
   const toggleItemCompletion = async (order, originalIndex) => {
+      const itemToUpdate = order.items[originalIndex];
+      
+      // Bloqueamos que el admin pueda marcar bebidas en esta pantalla
+      if (isAdmin && isDrink(itemToUpdate)) {
+          showToast("Las bebidas las marcan en barra/frappes", "info");
+          return;
+      }
+
       const updatedItems = [...order.items];
       updatedItems[originalIndex].completed = !updatedItems[originalIndex].completed;
       
       try {
-          // 1. Guardar el check
           await updateDoc(doc(db, "orders", order.id), { items: updatedItems });
 
-          // 2. Auto-Finalizar si es necesario
-          const kitchenItems = updatedItems.filter(i => shouldShowItem(i));
+          // Filtrar items que SÍ le corresponden a cocina (No bebidas)
+          const kitchenItems = updatedItems.filter(i => !isDrink(i));
           const allDone = kitchenItems.every(i => i.completed);
 
           if (allDone && kitchenItems.length > 0) {
               await updateStatus(order.id, 'listo');
           } else {
-              // Cambia a preparando solo si estaba pendiente
               if (order.status === 'pendiente') {
                   await updateDoc(doc(db, "orders", order.id), { status: 'preparando' });
               }
@@ -115,8 +127,9 @@ export default function KitchenBoard() {
         {orders.map((order) => {
             const visibleItems = order.items.map((item, index) => ({...item, originalIndex: index})).filter(item => shouldShowItem(item));
             
-            // Si la orden ya está "servido" y toda la cocina ya terminó, lo ocultamos.
-            const allKitchenDone = visibleItems.length > 0 && visibleItems.every(i => i.completed);
+            // Verificamos si toda LA COMIDA está lista para ocultar la tarjeta
+            const kitchenItems = visibleItems.filter(i => !isDrink(i));
+            const allKitchenDone = kitchenItems.length > 0 && kitchenItems.every(i => i.completed);
             
             if (visibleItems.length === 0 || allKitchenDone) return null;
 
@@ -140,22 +153,34 @@ export default function KitchenBoard() {
                 </div>
 
                 <div className="space-y-3 mb-4">
-                    {visibleItems.map((item) => (
-                        <div key={item.originalIndex} className={`border-b border-zinc-700 pb-2 last:border-0 transition-all ${item.completed ? 'opacity-50' : 'opacity-100'}`}>
-                            <div className="flex items-start gap-3 cursor-pointer select-none" onClick={() => toggleItemCompletion(order, item.originalIndex)}>
-                                <div className={`mt-1 text-2xl ${item.completed ? 'text-green-500' : 'text-gray-500 hover:text-yellow-500'}`}>
-                                    {item.completed ? <FaCheckSquare /> : <FaRegSquare />}
-                                </div>
+                    {visibleItems.map((item) => {
+                        const itemIsDrink = isDrink(item);
+                        
+                        return (
+                        <div key={item.originalIndex} className={`border-b border-zinc-700 pb-2 last:border-0 transition-all ${item.completed ? 'opacity-50' : 'opacity-100'} ${itemIsDrink ? 'bg-zinc-900/50 p-2 rounded-lg' : ''}`}>
+                            <div className={`flex items-start gap-3 ${itemIsDrink && isAdmin ? 'cursor-not-allowed' : 'cursor-pointer select-none'}`} onClick={() => toggleItemCompletion(order, item.originalIndex)}>
+                                
+                                {/* Si es Admin y es bebida, no mostramos checkbox, solo un ícono */}
+                                {itemIsDrink && isAdmin ? (
+                                    <div className="mt-1 text-2xl text-cyan-700/50" title="Las bebidas se marcan en barra">
+                                        <FaGlassWhiskey />
+                                    </div>
+                                ) : (
+                                    <div className={`mt-1 text-2xl ${item.completed ? 'text-green-500' : 'text-gray-500 hover:text-yellow-500'}`}>
+                                        {item.completed ? <FaCheckSquare /> : <FaRegSquare />}
+                                    </div>
+                                )}
+
                                 <div className="flex-1">
                                     <div className="flex items-center gap-2">
-                                        <span className="font-bold text-lg w-7 h-7 flex items-center justify-center rounded-md bg-zinc-700 text-white">{item.quantity}</span>
-                                        <p className={`font-bold text-lg leading-tight ${item.completed ? 'line-through text-gray-500' : 'text-yellow-100'}`}>{item.name}</p>
+                                        <span className={`font-bold text-lg w-7 h-7 flex items-center justify-center rounded-md text-white ${itemIsDrink ? 'bg-cyan-900' : 'bg-zinc-700'}`}>{item.quantity}</span>
+                                        <p className={`font-bold text-lg leading-tight ${item.completed ? 'line-through text-gray-500' : itemIsDrink ? 'text-cyan-200/50' : 'text-yellow-100'}`}>{item.name}</p>
                                     </div>
-                                    {item.customizationDescription && <div className="mt-1 ml-9 p-1.5 rounded bg-zinc-700/50 border-l-2 border-yellow-600 text-xs text-gray-300">📝 {item.customizationDescription}</div>}
+                                    {item.customizationDescription && <div className={`mt-1 ml-9 p-1.5 rounded text-xs ${itemIsDrink ? 'bg-black/20 text-gray-500 border-l-2 border-cyan-800' : 'bg-zinc-700/50 text-gray-300 border-l-2 border-yellow-600'}`}>📝 {item.customizationDescription}</div>}
                                 </div>
                             </div>
                         </div>
-                    ))}
+                    )})}
                 </div>
 
                 {isAdmin && (

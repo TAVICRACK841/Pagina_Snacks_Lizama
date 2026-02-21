@@ -39,13 +39,14 @@ export default function AdminDashboard() {
   const CLOUD_NAME = import.meta.env.PUBLIC_CLOUDINARY_CLOUD_NAME || "dw5mio6d9"; 
   const UPLOAD_PRESET = import.meta.env.PUBLIC_CLOUDINARY_PRESET || "Snacks_Lizama"; 
 
+  // CATEGORÍAS ACTUALIZADAS
   const CATEGORIES = [
       'hamburguesas', 'alitas', 'media alitas', 'boneless', 'media boneless',
       'tiras', 'media tiras', 'pasta con alitas', 'media pasta con alitas',
       'pasta con boneless', 'media pasta con boneless', 'pasta con tiras', 'media pasta con tiras',
       'perros calientes', 'papas', 'media papas', 'pasta', 'media pasta',
       'box familiar', 'mini box', 'embotellado', 'aguas naturales', 'frappe', 'jugo',
-      'pasta con camarones', 'dedos de queso'
+      'pasta con camarones', 'media pasta con camarones', 'pasta con dedos', 'media pasta con dedos', 'dedos de queso'
   ];
 
   const BANKS = ['BBVA', 'Santander', 'Banamex', 'Banorte', 'HSBC', 'Banco Azteca', 'Bancoppel', 'Spin by Oxxo', 'Nu', 'Transferencia', 'Otro'];
@@ -129,9 +130,14 @@ export default function AdminDashboard() {
   const isAguas = c === 'aguas naturales';
   const isEmbotellado = c === 'embotellado';
 
+  // CONFIGURACIÓN INTELIGENTE DE OPCIONES (Aquí bloqueamos bañar a las de camarones/dedos)
   const needsCoatingSauces = ['hamburguesas', 'alitas', 'boneless', 'tiras', 'media alitas', 'media boneless', 'media tiras', 'pasta con alitas', 'pasta con boneless', 'pasta con tiras', 'media pasta con alitas', 'media pasta con boneless', 'media pasta con tiras', 'box familiar', 'mini box'].includes(c);
-  const needsExtraSaucesConfig = ['hamburguesas', 'perros calientes', 'alitas', 'boneless', 'tiras', 'media alitas', 'media boneless', 'media tiras', 'pasta con alitas', 'pasta con boneless', 'pasta con tiras', 'media pasta con alitas', 'media pasta con boneless', 'media pasta con tiras', 'box familiar', 'mini box', 'dedos de queso'].includes(c);
-  const needsPieceConfig = ['hamburguesas', 'alitas', 'boneless', 'tiras', 'media alitas', 'media boneless', 'media tiras', 'pasta con alitas', 'pasta con boneless', 'pasta con tiras', 'media pasta con alitas', 'media pasta con boneless', 'media pasta con tiras', 'box familiar', 'mini box', 'dedos de queso'].includes(c);
+  
+  // Aquí SÍ permitimos salsas extras y piezas extras
+  const needsExtraSaucesConfig = ['hamburguesas', 'perros calientes', 'alitas', 'boneless', 'tiras', 'media alitas', 'media boneless', 'media tiras', 'pasta con alitas', 'pasta con boneless', 'pasta con tiras', 'media pasta con alitas', 'media pasta con boneless', 'media pasta con tiras', 'box familiar', 'mini box', 'dedos de queso', 'pasta con camarones', 'media pasta con camarones', 'pasta con dedos', 'media pasta con dedos'].includes(c);
+  
+  const needsPieceConfig = ['hamburguesas', 'alitas', 'boneless', 'tiras', 'media alitas', 'media boneless', 'media tiras', 'pasta con alitas', 'pasta con boneless', 'pasta con tiras', 'media pasta con alitas', 'media pasta con boneless', 'media pasta con tiras', 'box familiar', 'mini box', 'dedos de queso', 'pasta con camarones', 'media pasta con camarones', 'pasta con dedos', 'media pasta con dedos'].includes(c);
+  
   const needsStandardIngredients = ['hamburguesas', 'box familiar', 'mini box'].includes(c);
   const isNoCustom = ['papas', 'media papas', 'pasta', 'media pasta', 'jugo'].includes(c);
 
@@ -165,13 +171,8 @@ export default function AdminDashboard() {
       const allFetchedOrders = s.docs.map(d => ({ id: d.id, ...d.data() }));
 
       const ordersForFinance = allFetchedOrders.filter(o => {
-          // 1. Pedidos terminados o cancelados (Mesas, Domicilio)
           if (['completado', 'entregado', 'cancelado'].includes(o.status)) return true;
-          
-          // 2. CORRECCIÓN: Los pedidos "Para Llevar" se pagan al momento en caja, 
-          // por lo que el dinero ya entró, incluso si siguen en "pendiente", "preparando" o "listo".
           if (o.type === 'llevar' || o.type === 'para_llevar') return true;
-
           return false;
       });
 
@@ -189,7 +190,6 @@ export default function AdminDashboard() {
   
   const handleDeleteReport = async (ordersList, expensesList, dateLabel) => { if (!window.confirm(`¿Borrar historial del ${dateLabel}?`)) return; setLoading(true); try { await Promise.all([...ordersList.map(o => deleteDoc(doc(db, "orders", o.id))), ...expensesList.map(e => deleteDoc(doc(db, "expenses", e.id)))]); showToast("Eliminado", 'success'); fetchOrders(); fetchExpenses(); } catch (e) { showToast("Error", 'error'); } setLoading(false); };
   
-  // PDF Modificado (Sin propinas)
   const generateDailyReport = (date, dailyOrders, dailyExpenses) => { 
       const doc = new jsPDF(); doc.text(`Reporte - ${date}`, 14, 15); 
       autoTable(doc, { 
@@ -219,7 +219,6 @@ export default function AdminDashboard() {
   const handleDeleteAccount = async (id) => { const updatedAccounts = accounts.filter(acc => acc.id !== id); setAccounts(updatedAccounts); try { await updateDoc(doc(db, "store_config", "main"), { accounts: updatedAccounts }); showToast("Eliminada", "info"); } catch (error) { showToast("Error", "error"); } };
   const handleCardInput = (e) => { let val = e.target.value.replace(/\D/g, ''); if (val.length > 18) val = val.slice(0, 18); val = val.replace(/(\d{4})(?=\d)/g, '$1 '); setNewAccount({ ...newAccount, number: val }); };
 
-  // --- LÓGICA DE AGRUPACIÓN (FINANZAS) ---
   const groupedData = orders.reduce((acc, order) => { 
       const date = new Date(order.createdAt).toLocaleDateString(); 
       if (!acc[date]) acc[date] = { orders: [], expenses: [] }; 
@@ -259,7 +258,6 @@ export default function AdminDashboard() {
       </div>
 
       <div className="flex border-b border-zinc-700 mb-6 overflow-x-auto whitespace-nowrap bg-zinc-800 rounded-t-lg shadow-sm">
-        {/* TABS LIMPIOS (Sin Registros) */}
         {['menu', 'roles', 'finanzas', 'buzon', 'config'].map((tab) => (
             <button key={tab} onClick={() => setActiveTab(tab)} className={`flex-shrink-0 px-6 py-3 font-bold uppercase text-xs border-b-4 transition ${activeTab === tab ? 'border-yellow-500 text-yellow-500 bg-zinc-700' : 'border-transparent text-gray-400 hover:bg-zinc-700 hover:text-white'}`}>{tab === 'buzon' ? '📩 BUZÓN' : tab}</button>
         ))}
@@ -307,6 +305,7 @@ export default function AdminDashboard() {
                             )}
                             {isAguas && (<div className="bg-blue-900/30 p-3 rounded border border-blue-700/50 mt-2"><p className="text-xs font-bold text-blue-200 mb-2 flex items-center gap-1"><FaSnowflake/> Configuración Agua</p><div className="flex items-center gap-2 text-white text-sm"><input type="checkbox" checked={productForm.hasIceOption} onChange={e => setProductForm({...productForm, hasIceOption: e.target.checked})} /> Habilitar elección de Hielo</div></div>)}
                             {isEmbotellado && (<div className="bg-cyan-900/30 p-3 rounded border border-cyan-700/50 mt-2"><p className="text-xs font-bold text-cyan-200 mb-2 flex items-center gap-1"><FaThermometerHalf/> Configuración Botella</p><div className="flex items-center gap-2 text-white text-sm"><input type="checkbox" checked={productForm.hasTempOption} onChange={e => setProductForm({...productForm, hasTempOption: e.target.checked})} /> Habilitar elección Temperatura</div></div>)}
+                            
                             {needsCoatingSauces && (
                                 <div className="bg-zinc-700 p-2 rounded border border-zinc-600 mt-2">
                                     <p className="text-xs font-bold mb-1 text-white">Salsas para Bañar (Sabores):</p>
@@ -314,6 +313,7 @@ export default function AdminDashboard() {
                                     <div className="flex flex-wrap gap-1">{productForm.sauceOptions?.map((item,i)=>(<span key={i} className="text-xs bg-yellow-900/50 text-yellow-200 border border-yellow-700 px-2 py-1 rounded flex items-center gap-1">{item}<FaTimes onClick={()=>removeFromList('sauceOptions',i)} className="cursor-pointer"/></span>))}</div>
                                 </div>
                             )}
+                            
                             {needsExtraSaucesConfig && (
                                 <div className="bg-zinc-800 p-2 rounded border border-zinc-600 mt-3 relative overflow-hidden">
                                     <div className="absolute top-0 right-0 bg-green-700 text-white text-[9px] px-2 py-1 rounded-bl font-bold">EXTRAS</div>
@@ -323,7 +323,10 @@ export default function AdminDashboard() {
                                     <div className="flex items-center gap-2 text-xs text-gray-300 border-t border-zinc-600 pt-2"><span>Precio Botecito Extra: $</span><input type="number" className="w-20 p-2 border rounded bg-zinc-700 text-white border-zinc-500 font-bold text-center" value={productForm.extraSaucePotPrice} onChange={e=>setProductForm({...productForm, extraSaucePotPrice:Number(e.target.value)})}/></div>
                                 </div>
                             )}
-                            {needsPieceConfig && (<div className="grid grid-cols-1 gap-2 text-xs text-gray-300 mt-2"><div className="flex items-center gap-2"><span>Precio Pieza Extra (Alita/Tira): $</span><input type="number" className="flex-1 p-2 border rounded bg-zinc-600 text-white border-zinc-500" value={productForm.pricePerExtraPiece} onChange={e=>setProductForm({...productForm, pricePerExtraPiece:Number(e.target.value)})}/></div></div>)}
+                            
+                            {needsPieceConfig && (
+                                <div className="grid grid-cols-1 gap-2 text-xs text-gray-300 mt-2"><div className="flex items-center gap-2"><span>Precio Pieza Extra (Alita/Tira): $</span><input type="number" className="flex-1 p-2 border rounded bg-zinc-600 text-white border-zinc-500" value={productForm.pricePerExtraPiece} onChange={e=>setProductForm({...productForm, pricePerExtraPiece:Number(e.target.value)})}/></div></div>
+                            )}
                         </div>
                     )}
                     <button disabled={loading} className={`text-white p-3 rounded font-bold shadow w-full ${isEditing?'bg-blue-600':'bg-green-600'}`}>{loading?'...':(isEditing?'Actualizar':'Crear')}</button>
