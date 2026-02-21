@@ -9,7 +9,11 @@ export default function ProductCustomizer({ product, initialValues, onClose, onA
   const isBurger = c.includes('hamburguesa');
   const isWingsType = c.includes('alitas') || c.includes('boneless') || c.includes('tiras'); 
   const isTiras = c.includes('tiras'); 
-  const isPastaProtein = c.includes('pasta con');
+  
+  // AQUI ESTA LA MAGIA: Solo pedimos sabor si es pasta con alitas, boneless o tiras.
+  // Ignoramos camarones y dedos de queso.
+  const isPastaProtein = c.includes('pasta con') && !c.includes('camarones') && !c.includes('dedos');
+  
   const isHotDog = c.includes('perros') || c.includes('hot dog');
   const isBox = c.includes('box');
   
@@ -22,8 +26,8 @@ export default function ProductCustomizer({ product, initialValues, onClose, onA
   // Categorías Simples
   const isSimple = ['papas', 'media papas', 'pasta', 'media pasta', 'dedos de queso'].includes(c);
 
-  // Categorías que deben mostrar la lista de piezas extras
-  const showExtraSnacksList = isBurger || isWingsType || isPastaProtein || isBox;
+  // Categorías que deben mostrar la lista de piezas extras (Agregamos TODAS las pastas con proteínas y dedos)
+  const showExtraSnacksList = isBurger || isWingsType || c.includes('pasta con') || isBox || c === 'dedos de queso';
 
   // --- 2. VARIABLES DE PRECIO ---
   const POT_PRICE = Number(product.extraSaucePotPrice || 0);
@@ -53,7 +57,7 @@ export default function ProductCustomizer({ product, initialValues, onClose, onA
   const [meatType, setMeatType] = useState(() => initialValues?.rawState?.meatType || 'Pechuga Crispy');
   const [burgerBathedFlavor, setBurgerBathedFlavor] = useState(() => initialValues?.rawState?.burgerBathedFlavor || ''); 
   
-  // ALITAS / BONELESS / TIRAS
+  // ALITAS / BONELESS / TIRAS / PASTA
   const [sauceMode, setSauceMode] = useState(() => initialValues?.rawState?.sauceMode || 'Natural'); 
   const [useSplitFlavors, setUseSplitFlavors] = useState(() => initialValues?.rawState?.useSplitFlavors || false);
   const [selectedFlavors, setSelectedFlavors] = useState(() => initialValues?.rawState?.selectedFlavors || { flavor1: '', flavor2: '' });
@@ -162,6 +166,7 @@ export default function ProductCustomizer({ product, initialValues, onClose, onA
           if (extraIngredients.length > 0) desc.push(`Extra: ${extraIngredients.join(', ')}`);
       }
 
+      // Añadimos el sabor solo si es una categoría que lo requiere
       if (isWingsType || isPastaProtein) {
           let flavorStr = '';
           if (isTiras && sauceMode === 'Natural') flavorStr = 'Naturales';
@@ -326,7 +331,7 @@ export default function ProductCustomizer({ product, initialValues, onClose, onA
                 </div>
             )}
 
-            {/* --- ALITAS / BONELESS / TIRAS / PASTA --- */}
+            {/* --- ALITAS / BONELESS / TIRAS / PASTA CON SALSAS --- */}
             {(isWingsType || isPastaProtein) && (
                 <div className="space-y-6">
                     {isTiras && (
@@ -663,7 +668,7 @@ export default function ProductCustomizer({ product, initialValues, onClose, onA
                 </div>
             )}
 
-            {/* NUEVO: CAMPO DE NOTAS ESPECIALES */}
+            {/* CAMPO DE NOTAS ESPECIALES */}
             <div className="bg-zinc-800/50 p-4 rounded-xl border border-zinc-700">
                 <label className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 flex items-center gap-2">
                     <FaStickyNote className="text-yellow-500"/> Notas Especiales (Opcional)
