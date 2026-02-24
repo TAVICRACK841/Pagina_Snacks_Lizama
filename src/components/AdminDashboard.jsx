@@ -39,14 +39,14 @@ export default function AdminDashboard() {
   const CLOUD_NAME = import.meta.env.PUBLIC_CLOUDINARY_CLOUD_NAME || "dw5mio6d9"; 
   const UPLOAD_PRESET = import.meta.env.PUBLIC_CLOUDINARY_PRESET || "Snacks_Lizama"; 
 
-  // CATEGORÍAS ACTUALIZADAS
+  // CATEGORÍAS ACTUALIZADAS (Añadida 'media orden de dedos')
   const CATEGORIES = [
       'hamburguesas', 'alitas', 'media alitas', 'boneless', 'media boneless',
       'tiras', 'media tiras', 'pasta con alitas', 'media pasta con alitas',
       'pasta con boneless', 'media pasta con boneless', 'pasta con tiras', 'media pasta con tiras',
       'perros calientes', 'papas', 'media papas', 'pasta', 'media pasta',
       'box familiar', 'mini box', 'embotellado', 'aguas naturales', 'frappe', 'jugo',
-      'pasta con camarones', 'media pasta con camarones', 'pasta con dedos', 'media pasta con dedos', 'dedos de queso'
+      'pasta con camarones', 'media pasta con camarones', 'pasta con dedos', 'media pasta con dedos', 'dedos de queso', 'media orden de dedos'
   ];
 
   const BANKS = ['BBVA', 'Santander', 'Banamex', 'Banorte', 'HSBC', 'Banco Azteca', 'Bancoppel', 'Spin by Oxxo', 'Nu', 'Transferencia', 'Otro'];
@@ -130,13 +130,12 @@ export default function AdminDashboard() {
   const isAguas = c === 'aguas naturales';
   const isEmbotellado = c === 'embotellado';
 
-  // CONFIGURACIÓN INTELIGENTE DE OPCIONES (Aquí bloqueamos bañar a las de camarones/dedos)
+  // CONFIGURACIÓN INTELIGENTE DE OPCIONES
   const needsCoatingSauces = ['hamburguesas', 'alitas', 'boneless', 'tiras', 'media alitas', 'media boneless', 'media tiras', 'pasta con alitas', 'pasta con boneless', 'pasta con tiras', 'media pasta con alitas', 'media pasta con boneless', 'media pasta con tiras', 'box familiar', 'mini box'].includes(c);
   
-  // Aquí SÍ permitimos salsas extras y piezas extras
-  const needsExtraSaucesConfig = ['hamburguesas', 'perros calientes', 'alitas', 'boneless', 'tiras', 'media alitas', 'media boneless', 'media tiras', 'pasta con alitas', 'pasta con boneless', 'pasta con tiras', 'media pasta con alitas', 'media pasta con boneless', 'media pasta con tiras', 'box familiar', 'mini box', 'dedos de queso', 'pasta con camarones', 'media pasta con camarones', 'pasta con dedos', 'media pasta con dedos'].includes(c);
+  const needsExtraSaucesConfig = ['hamburguesas', 'perros calientes', 'alitas', 'boneless', 'tiras', 'media alitas', 'media boneless', 'media tiras', 'pasta con alitas', 'pasta con boneless', 'pasta con tiras', 'media pasta con alitas', 'media pasta con boneless', 'media pasta con tiras', 'box familiar', 'mini box', 'dedos de queso', 'media orden de dedos', 'pasta con camarones', 'media pasta con camarones', 'pasta con dedos', 'media pasta con dedos'].includes(c);
   
-  const needsPieceConfig = ['hamburguesas', 'alitas', 'boneless', 'tiras', 'media alitas', 'media boneless', 'media tiras', 'pasta con alitas', 'pasta con boneless', 'pasta con tiras', 'media pasta con alitas', 'media pasta con boneless', 'media pasta con tiras', 'box familiar', 'mini box', 'dedos de queso', 'pasta con camarones', 'media pasta con camarones', 'pasta con dedos', 'media pasta con dedos'].includes(c);
+  const needsPieceConfig = ['hamburguesas', 'alitas', 'boneless', 'tiras', 'media alitas', 'media boneless', 'media tiras', 'pasta con alitas', 'pasta con boneless', 'pasta con tiras', 'media pasta con alitas', 'media pasta con boneless', 'media pasta con tiras', 'box familiar', 'mini box', 'dedos de queso', 'media orden de dedos', 'pasta con camarones', 'media pasta con camarones', 'pasta con dedos', 'media pasta con dedos'].includes(c);
   
   const needsStandardIngredients = ['hamburguesas', 'box familiar', 'mini box'].includes(c);
   const isNoCustom = ['papas', 'media papas', 'pasta', 'media pasta', 'jugo'].includes(c);
@@ -163,7 +162,6 @@ export default function AdminDashboard() {
   const toggleProductStock = async (product) => { await updateDoc(doc(db, "products", product.id), { inStock: !product.inStock }); fetchProducts(); };
   const handleDeleteProduct = async (id) => { if(confirm("¿Eliminar?")) { await deleteDoc(doc(db, "products", id)); fetchProducts(); } };
 
-  // --- OBTENER PEDIDOS (CORRECCIÓN PARA FINANZAS) ---
   const fetchOrders = async () => { 
       const q = query(collection(db, "orders"), orderBy("createdAt", "desc")); 
       const s = await getDocs(q); 
@@ -388,10 +386,8 @@ export default function AdminDashboard() {
             {sortedDates.map(date => {
                 const dayData = groupedData[date];
                 
-                // Ignoramos los cancelados para el corte financiero
                 const validOrders = dayData.orders.filter(o => o.status !== 'cancelado');
                 
-                // CÁLCULO NETO DE COMIDA (Se resta la propina - serviceFee)
                 const income = validOrders.reduce((sum, o) => sum + (o.total - (o.serviceFee || 0)), 0);
                 
                 const expenseSum = dayData.expenses.reduce((sum, e) => sum + e.amount, 0);
@@ -415,7 +411,6 @@ export default function AdminDashboard() {
                             </div>
                         </div>
 
-                        {/* LISTA DE GASTOS */}
                         {dayData.expenses.length > 0 && (
                             <div className="mb-4 p-3 bg-red-900/20 rounded-lg text-sm border border-red-900/30">
                                 <p className="font-bold text-red-300 mb-2">Gastos Registrados:</p>
@@ -431,7 +426,6 @@ export default function AdminDashboard() {
                             </div>
                         )}
 
-                        {/* LISTA DE PEDIDOS */}
                         <div className="text-sm text-gray-400 max-h-48 overflow-y-auto pr-2 mt-2">
                             {validOrders.map(o => (
                                 <div key={o.id} className="flex justify-between py-2 border-b border-zinc-700/50 last:border-0">

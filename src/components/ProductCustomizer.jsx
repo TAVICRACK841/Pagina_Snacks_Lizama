@@ -3,16 +3,21 @@ import { FaCheck, FaTimes, FaPlus, FaMinus, FaHamburger, FaDrumstickBite, FaUten
 import { showToast } from '../stores/toastStore';
 
 export default function ProductCustomizer({ product, initialValues, onClose, onAddToCart }) {
-  // --- 1. DETECCIÓN DE CATEGORÍA ---
+  // --- 1. DETECCIÓN INTELIGENTE DE CATEGORÍA ---
   const c = product.category ? product.category.toLowerCase() : '';
   
   const isBurger = c.includes('hamburguesa');
-  const isWingsType = c.includes('alitas') || c.includes('boneless') || c.includes('tiras'); 
-  const isTiras = c.includes('tiras'); 
+  const isPasta = c.includes('pasta');
   
-  // AQUI ESTA LA MAGIA: Solo pedimos sabor si es pasta con alitas, boneless o tiras.
-  // Ignoramos camarones y dedos de queso.
-  const isPastaProtein = c.includes('pasta con') && !c.includes('camarones') && !c.includes('dedos');
+  // Alitas, Boneless o Tiras (solas, que NO son parte de una pasta)
+  const isWingsType = (c.includes('alitas') || c.includes('boneless') || c.includes('tiras')) && !isPasta; 
+  const isTiras = c.includes('tiras') && !isPasta; 
+  
+  // Pastas que SÍ requieren elegir sabor (las que llevan alitas, boneless o tiras)
+  const isPastaProtein = isPasta && (c.includes('alitas') || c.includes('boneless') || c.includes('tiras'));
+  
+  // Pastas que NO requieren sabor (camarones, dedos)
+  const isPastaNoFlavor = isPasta && (c.includes('camarones') || c.includes('dedos'));
   
   const isHotDog = c.includes('perros') || c.includes('hot dog');
   const isBox = c.includes('box');
@@ -24,10 +29,10 @@ export default function ProductCustomizer({ product, initialValues, onClose, onA
   const isEmbotellado = c.includes('embotellado');
 
   // Categorías Simples
-  const isSimple = ['papas', 'media papas', 'pasta', 'media pasta', 'dedos de queso'].includes(c);
+  const isSimple = ['papas', 'media papas', 'pasta', 'media pasta', 'dedos de queso'].includes(c) && !isPastaProtein && !isPastaNoFlavor;
 
-  // Categorías que deben mostrar la lista de piezas extras (Agregamos TODAS las pastas con proteínas y dedos)
-  const showExtraSnacksList = isBurger || isWingsType || c.includes('pasta con') || isBox || c === 'dedos de queso';
+  // Categorías que deben mostrar la lista de añadir piezas extras
+  const showExtraSnacksList = isBurger || isWingsType || isPasta || isBox || c.includes('dedos');
 
   // --- 2. VARIABLES DE PRECIO ---
   const POT_PRICE = Number(product.extraSaucePotPrice || 0);
@@ -37,7 +42,7 @@ export default function ProductCustomizer({ product, initialValues, onClose, onA
   // --- 3. ESTADOS ---
   const [currentPrice, setCurrentPrice] = useState(product.price);
   
-  // NUEVO: NOTA ESPECIAL DEL CLIENTE
+  // NOTA ESPECIAL DEL CLIENTE
   const [specialNote, setSpecialNote] = useState(() => initialValues?.rawState?.specialNote || '');
 
   // GENERAL
@@ -132,16 +137,13 @@ export default function ProductCustomizer({ product, initialValues, onClose, onA
   const getSauceCount = (sauceName) => chosenSauces.filter(s => s === sauceName).length;
 
   const handleConfirm = () => {
-      // Validaciones Generales
       if ((isWingsType || isPastaProtein) && !isTiras && useSplitFlavors && (!selectedFlavors.flavor1 || !selectedFlavors.flavor2)) return showToast("Elige ambos sabores", "error");
       if ((isWingsType || isPastaProtein) && !isTiras && !useSplitFlavors && !selectedFlavors.flavor1) return showToast("Elige un sabor", "error");
       if (isTiras && sauceMode === 'Bañado' && !selectedFlavors.flavor1) return showToast("Elige la salsa para bañar las tiras", "error");
       if ((isDrink || isFrappe) && product.flavorOptions?.length > 0 && !drinkFlavor) return showToast("Elige el sabor de la bebida", "error");
       
-      // Validación Estricta para BOX: Sabor obligatorio
       if (isBox) {
           if (boxConfig.tirasMode === 'Bañadas' && !boxConfig.tirasFlavor) return showToast("Elige la salsa para las tiras del Box", "error");
-          
           if (boxConfig.splitWingsBoneless) {
               if (!boxConfig.wingsBonelessFlavors.f1 || !boxConfig.wingsBonelessFlavors.f2) {
                   return showToast("Debes elegir los DOS sabores (Mitad y Mitad) para Alitas/Boneless", "error");
@@ -166,7 +168,6 @@ export default function ProductCustomizer({ product, initialValues, onClose, onA
           if (extraIngredients.length > 0) desc.push(`Extra: ${extraIngredients.join(', ')}`);
       }
 
-      // Añadimos el sabor solo si es una categoría que lo requiere
       if (isWingsType || isPastaProtein) {
           let flavorStr = '';
           if (isTiras && sauceMode === 'Natural') flavorStr = 'Naturales';
@@ -236,7 +237,6 @@ export default function ProductCustomizer({ product, initialValues, onClose, onA
 
       if (selectedExtras.length > 0) desc.push(`Extras: ${selectedExtras.map(e => e.name).join(', ')}`);
 
-      // SE AGREGA LA NOTA ESPECIAL AL FINAL DE LA DESCRIPCIÓN
       if (specialNote.trim() !== '') {
           desc.push(`👉 NOTA: ${specialNote.trim()}`);
       }
